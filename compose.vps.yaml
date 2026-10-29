@@ -79,7 +79,8 @@ services:
     build:
       args:
         VITE_GRAFANA_URL: ${GRAFANA_BROWSER_URL:-http://localhost:3300/d/ayla-vps}
-    entrypoint: [/usr/local/bin/vps-entrypoint]
+    entrypoint: ["/usr/local/bin/vps-entrypoint"]
+    command: ["nginx", "-g", "daemon off;"]
     environment:
       AYLA_API_BASE_URL: http://api-gateway:8080
       AYLA_PUBLIC_IP: ${AYLA_PUBLIC_IP:-}
