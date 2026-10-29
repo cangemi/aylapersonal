@@ -86,7 +86,7 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
         with:
-          username: ${{ vars.DOCKERHUB_USERNAME || 'aylapersonal' }}
+          username: cangemi
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and publish
@@ -117,8 +117,8 @@ jobs:
     name: Deploy to Oracle Cloud
     needs: images
 
-    # Temporariamente desativado.
-    # Para ativar posteriormente, substituir por:
+    # Deploy temporariamente desativado.
+    # Ativar depois de validar as imagens e a configuracao da VPS.
     # if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     if: ${{ false }}
 
@@ -222,8 +222,7 @@ jobs:
             exit 1
           fi
 
-          # Extrai os arquivos no diretorio estavel.
-          # Preserva o .env e os volumes Docker existentes.
+          # Preserva o .env e os volumes persistentes.
           tar -xzf /tmp/ayla-deploy.tar.gz -C /opt/ayla
           rm -f /tmp/ayla-deploy.tar.gz
 
