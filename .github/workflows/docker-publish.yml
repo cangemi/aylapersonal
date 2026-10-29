@@ -22,6 +22,7 @@ jobs:
     name: Build ${{ matrix.component }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    environment: env
 
     strategy:
       fail-fast: false
@@ -115,10 +116,15 @@ jobs:
   deploy:
     name: Deploy to Oracle Cloud
     needs: images
+
+    # Temporariamente desativado.
+    # Para ativar posteriormente, substituir por:
+    # if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     if: ${{ false }}
+
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    environment: production
+    environment: env
 
     steps:
       - name: Checkout deployment configuration
@@ -216,8 +222,8 @@ jobs:
             exit 1
           fi
 
-          # Extract configuration in the stable project directory.
-          # Existing .env and named Docker volumes are preserved.
+          # Extrai os arquivos no diretorio estavel.
+          # Preserva o .env e os volumes Docker existentes.
           tar -xzf /tmp/ayla-deploy.tar.gz -C /opt/ayla
           rm -f /tmp/ayla-deploy.tar.gz
 
