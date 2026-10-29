@@ -2,9 +2,6 @@
 # Linux ARM64/x86_64 deployment overlay.
 # Use with compose.yaml.
 #
-# Local build:
-# docker compose -f compose.yaml -f compose.vps.yaml up -d --build
-#
 # Oracle deployment:
 # docker compose -f compose.yaml -f compose.vps.yaml \
 #   -f compose.observability.yaml -f compose.oracle-free.yaml \
@@ -17,6 +14,7 @@ services:
     restart: unless-stopped
     init: true
     stop_grace_period: 220s
+
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?Defina RABBITMQ_PASSWORD}
@@ -28,12 +26,12 @@ services:
       AYLA_WHATSAPP_API_KEY: ${AYLA_WHATSAPP_API_KEY:?Defina AYLA_WHATSAPP_API_KEY}
       AYLA_CHAT_OWNER_ID: ${AYLA_CHAT_OWNER_ID:-local-owner}
       AYLA_AUTH_SETUP_KEY: ${AYLA_AUTH_SETUP_KEY:-}
-      AYLA_FRONTEND_ORIGINS: ${AYLA_FRONTEND_ORIGINS:-http://localhost:3000}
-      AYLA_WEB_BASE_URL: ${AYLA_WEB_BASE_URL:-auto}
+      AYLA_FRONTEND_ORIGINS: ${AYLA_FRONTEND_ORIGINS:-https://aylapersonal.duckdns.org}
+      AYLA_WEB_BASE_URL: ${AYLA_WEB_BASE_URL:-https://aylapersonal.duckdns.org}
       AYLA_VOICE_PRONUNCIATIONS: ${AYLA_VOICE_PRONUNCIATIONS:-}
       AYLA_GOOGLE_CLIENT_ID: ${AYLA_GOOGLE_CLIENT_ID:-}
       AYLA_GOOGLE_CLIENT_SECRET: ${AYLA_GOOGLE_CLIENT_SECRET:-}
-      AYLA_GOOGLE_REDIRECT_URI: ${AYLA_GOOGLE_REDIRECT_URI:-http://localhost:3000/api/v1/calendar/google/callback}
+      AYLA_GOOGLE_REDIRECT_URI: ${AYLA_GOOGLE_REDIRECT_URI:-https://aylapersonal.duckdns.org/api/v1/calendar/google/callback}
       AYLA_CALENDAR_ENCRYPTION_KEY: ${AYLA_CALENDAR_ENCRYPTION_KEY:-}
       TRACE_SAMPLING_PROBABILITY: ${TRACE_SAMPLING_PROBABILITY:-0.1}
       SPRING_PROFILES_ACTIVE: vps
@@ -45,92 +43,220 @@ services:
       WHATSAPP_BASE_URL: http://whatsapp:4000
       DB_POOL_SIZE: ${DB_POOL_SIZE:-12}
       MAX_CONCURRENT_CHATS: ${MAX_CONCURRENT_CHATS:-3}
-    expose: [8080, 9091]
+
+    expose:
+      - "8080"
+      - "9091"
+
     depends_on:
       postgres:
         condition: service_healthy
+
     deploy:
       replicas: 2
       resources:
         limits:
           memory: 1G
-          cpus: '0.65'
-    logging: &bounded-logs
+          cpus: "0.65"
+
+    logging:
       driver: json-file
       options:
-        max-size: 10m
-        max-file: '3'
+        max-size: "10m"
+        max-file: "3"
 
   api-gateway:
     image: haproxy:3.2-alpine
     restart: unless-stopped
+
     volumes:
       - ./docker/loadbalancer/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
-    expose: [8080, 8404]
-    depends_on: [api]
+
+    expose:
+      - "8080"
+      - "8404"
+
+    depends_on:
+      - api
+
     deploy:
       resources:
         limits:
           memory: 128M
-    logging: *bounded-logs
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   frontend:
     image: cangemi/ayla-frontend:${AYLA_IMAGE_TAG:-latest}
+
     build:
       args:
         VITE_GRAFANA_URL: ${GRAFANA_BROWSER_URL:-http://localhost:3300/d/ayla-vps}
-    entrypoint: ["/usr/local/bin/vps-entrypoint"]
-    command: ["nginx", "-g", "daemon off;"]
+
+    restart: unless-stopped
+
+    entrypoint:
+      - /usr/local/bin/vps-entrypoint
+
+    command:
+      - /bin/sh
+      - -c
+      - |
+        cp /etc/nginx/conf.d/vps.conf.template /etc/nginx/conf.d/default.conf
+        rm /etc/nginx/conf.d/vps.conf.template
+        exec nginx -g 'daemon off;'
+
     environment:
       AYLA_API_BASE_URL: http://api-gateway:8080
       AYLA_PUBLIC_IP: ${AYLA_PUBLIC_IP:-}
-    depends_on: [api-gateway]
+      AYLA_DOMAIN: aylapersonal.duckdns.org
+
+    volumes:
+      - ayla_letsencrypt:/etc/letsencrypt:ro
+      - ayla_acme_webroot:/var/www/certbot:ro
+
+    depends_on:
+      - api-gateway
+
     deploy:
       resources:
         limits:
           memory: 128M
-    logging: *bounded-logs
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  certbot:
+    image: certbot/certbot:latest
+    restart: unless-stopped
+
+    entrypoint: /bin/sh
+
+    command:
+      - -c
+      - |
+        while true; do
+          certbot certonly \
+            --webroot \
+            --webroot-path /var/www/certbot \
+            --domain aylapersonal.duckdns.org \
+            --non-interactive \
+            --agree-tos \
+            --register-unsafely-without-email \
+            --keep-until-expiring
+
+          sleep 43200
+        done
+
+    volumes:
+      - ayla_letsencrypt:/etc/letsencrypt
+      - ayla_acme_webroot:/var/www/certbot
+
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   hermes:
     environment:
       AYLA_JAVA_BASE_URL: http://api-gateway:8080
+
     deploy:
       resources:
         limits:
           memory: 3G
-    logging: *bounded-logs
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   whatsapp:
     image: cangemi/ayla-whatsapp:${AYLA_IMAGE_TAG:-latest}
+
     environment:
       WHATSAPP_JAVA_BASE_URL: http://api-gateway:8080
+
     deploy:
       resources:
         limits:
           memory: 1536M
-    logging: *bounded-logs
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   postgres:
-    command: [postgres, -c, max_connections=100, -c, shared_buffers=256MB]
+    command:
+      - postgres
+      - -c
+      - max_connections=100
+      - -c
+      - shared_buffers=256MB
+
     deploy:
       resources:
         limits:
           memory: 1G
-    logging: *bounded-logs
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   redis:
-    command: [redis-server, --appendonly, 'yes', --maxmemory, 128mb, --maxmemory-policy, noeviction]
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - 128mb
+      - --maxmemory-policy
+      - noeviction
+
     deploy:
       resources:
         limits:
           memory: 256M
-    logging: *bounded-logs
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   rabbitmq:
     volumes:
       - ./docker/observability/rabbitmq-plugins:/etc/rabbitmq/enabled_plugins:ro
+
     deploy:
       resources:
         limits:
           memory: 512M
-    logging: *bounded-logs
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  ayla_letsencrypt:
+  ayla_acme_webroot:
