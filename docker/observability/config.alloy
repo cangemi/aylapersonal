@@ -1,0 +1,52 @@
+discovery.docker "ayla" {
+  host = "tcp://docker-metrics-proxy:2375"
+  filter {
+    name = "label"
+    values = ["com.docker.compose.project=" + sys.env("COMPOSE_PROJECT_NAME")]
+  }
+}
+discovery.relabel "ayla_logs" {
+  targets = discovery.docker.ayla.targets
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label = "service"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex = "/(.*)"
+    target_label = "container"
+  }
+  // Hermes/WhatsApp may print user messages or QR credentials; do not ingest their raw logs.
+  rule {
+    source_labels = ["service"]
+    regex = "api|api-gateway|frontend|redis|rabbitmq|prometheus|loki|tempo|grafana|alertmanager"
+    action = "keep"
+  }
+}
+loki.source.docker "ayla" {
+  host = "tcp://docker-metrics-proxy:2375"
+  targets = discovery.relabel.ayla_logs.output
+  forward_to = [loki.process.safe.receiver]
+}
+loki.process "safe" {
+  // Defense in depth; request/response bodies are never an intended telemetry source.
+  stage.drop {
+    expression = "(?i)(authorization|bearer |password|senha|api[_-]?key|access[_-]?token|refresh[_-]?token)"
+  }
+  stage.static_labels {
+    values = { environment = sys.env("AYLA_OBSERVABILITY_ENV") }
+  }
+  forward_to = [loki.write.local.receiver]
+}
+loki.write "local" {
+  endpoint { url = "http://loki:3100/loki/api/v1/push" }
+}
+// Optional host-run Java log; without this mount (VPS), the glob matches no files.
+local.file_match "host_java" {
+  path_targets = [{"__path__" = "/var/log/ayla/*.log", "service" = "api", "container" = "java-host"}]
+  sync_period = "10s"
+}
+loki.source.file "host_java" {
+  targets = local.file_match.host_java.targets
+  forward_to = [loki.process.safe.receiver]
+}

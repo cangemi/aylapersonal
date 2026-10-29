@@ -1,0 +1,25 @@
+{
+  "id": "/",
+  "name": "Ayla · Seu espaço pessoal",
+  "short_name": "Ayla",
+  "description": "Converse com a Ayla e cuide do seu dia, das contas e da casa.",
+  "lang": "pt-BR",
+  "start_url": "/chat",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#120f1e",
+  "theme_color": "#120f1e",
+  "icons": [
+    { "src": "/ayla-192.png", "sizes": "256x256", "type": "image/png", "purpose": "any" },
+    {
+      "src": "/app-icon.svg",
+      "sizes": "192x192 512x512 any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    { "name": "Conversar com Ayla", "url": "/chat" },
+    { "name": "Lista de compras", "url": "/compras" }
+  ]
+}

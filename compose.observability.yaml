@@ -1,0 +1,199 @@
+# Add after compose.yaml and compose.vps.yaml. No telemetry listener is public.
+x-telemetry-logging: &telemetry-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: '3'
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    restart: unless-stopped
+    logging: *telemetry-logging
+    command: [--config.file=/etc/prometheus/prometheus.yml, --storage.tsdb.path=/prometheus, --storage.tsdb.retention.time=7d, --storage.tsdb.retention.size=4GB]
+    volumes:
+      - ./docker/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./docker/observability/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    ports: ['127.0.0.1:9090:9090']
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  grafana:
+    image: grafana/grafana:12.3.0
+    restart: unless-stopped
+    logging: *telemetry-logging
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-superadmin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Defina uma senha forte e exclusiva para o Grafana}
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_AUTH_ANONYMOUS_ENABLED: 'false'
+      GF_ANALYTICS_REPORTING_ENABLED: 'false'
+      GF_ANALYTICS_CHECK_FOR_UPDATES: 'false'
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./docker/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ['127.0.0.1:3300:3000']
+    depends_on: [prometheus, loki, tempo]
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+
+  loki:
+    image: grafana/loki:3.5.7
+    restart: unless-stopped
+    logging: *telemetry-logging
+    command: [-config.file=/etc/loki/ayla.yml]
+    volumes:
+      - ./docker/observability/loki.yml:/etc/loki/ayla.yml:ro
+      - loki_data:/loki
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  tempo:
+    image: grafana/tempo:2.9.0
+    restart: unless-stopped
+    logging: *telemetry-logging
+    command: [-config.file=/etc/tempo/ayla.yml]
+    volumes:
+      - ./docker/observability/tempo.yml:/etc/tempo/ayla.yml:ro
+      - tempo_data:/var/tempo
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+
+  alloy:
+    image: grafana/alloy:v1.11.3
+    init: true
+    networks: [default, docker-telemetry]
+    restart: unless-stopped
+    logging: *telemetry-logging
+    command: [run, --storage.path=/var/lib/alloy/data, /etc/alloy/config.alloy]
+    volumes:
+      - ./docker/observability/config.alloy:/etc/alloy/config.alloy:ro
+      - alloy_data:/var/lib/alloy/data
+    environment:
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-ayla}
+      AYLA_OBSERVABILITY_ENV: ayla-vps
+    depends_on: [loki, docker-metrics-proxy]
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # Read-only Docker API. It is never published on the host.
+  docker-metrics-proxy:
+    image: tecnativa/docker-socket-proxy:0.3.0
+    restart: unless-stopped
+    logging: *telemetry-logging
+    environment:
+      CONTAINERS: '1'
+      NETWORKS: '1'
+      EVENTS: '1'
+      INFO: '1'
+      VERSION: '1'
+      POST: '0'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [docker-telemetry]
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    restart: unless-stopped
+    logging: *telemetry-logging
+    pid: host
+    command: [--path.rootfs=/host, '--collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/docker/.+|var/lib/containers/.+)($$|/)']
+    volumes: ['/:/host:ro,rslave']
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+  cadvisor:
+    image: ghcr.io/google/cadvisor:v0.53.0
+    restart: unless-stopped
+    logging: *telemetry-logging
+    privileged: true
+    devices: [/dev/kmsg:/dev/kmsg]
+    command: [--docker_only=true, --housekeeping_interval=30s, --store_container_labels=false, '--whitelisted_container_labels=com.docker.compose.service']
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.17.1
+    restart: unless-stopped
+    logging: *telemetry-logging
+    environment:
+      DATA_SOURCE_URI: postgres:5432/ayla?sslmode=disable
+      DATA_SOURCE_USER: ayla
+      DATA_SOURCE_PASS: ${POSTGRES_PASSWORD}
+    deploy:
+      resources:
+        limits:
+          memory: 96M
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.76.0
+    restart: unless-stopped
+    logging: *telemetry-logging
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+  blackbox:
+    image: prom/blackbox-exporter:v0.27.0
+    restart: unless-stopped
+    logging: *telemetry-logging
+    command: [--config.file=/etc/blackbox.yml]
+    volumes: [./docker/observability/blackbox.yml:/etc/blackbox.yml:ro]
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    restart: unless-stopped
+    logging: *telemetry-logging
+    command: [--config.file=/etc/alertmanager/alertmanager.yml, --storage.path=/alertmanager]
+    volumes:
+      - ./docker/observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+networks:
+  docker-telemetry:
+    internal: true
+
+volumes:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+  tempo_data:
+  alloy_data:
+  alertmanager_data:

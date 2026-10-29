@@ -1,0 +1,175 @@
+# Oracle Ampere A1: 2 OCPUs / 12 GB RAM. Linux only.
+# Load LAST, after compose.yaml, compose.vps.yaml and compose.observability.yaml.
+# First run: sudo bash scripts/Prepare-Oracle-Free.sh
+# Individual CPU ceilings allow bursts; ayla.slice caps the whole stack at 1.8 CPUs / 10 GiB.
+services:
+  api:
+    cgroup_parent: ayla.slice
+    environment:
+      DB_POOL_SIZE: '8'
+      MAX_CONCURRENT_CHATS: '2'
+      JAVA_TOOL_OPTIONS: '-XX:MaxRAMPercentage=55 -XX:+ExitOnOutOfMemoryError'
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 768M
+          cpus: '0.50'
+
+  api-gateway:
+    cgroup_parent: ayla.slice
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: '0.10'
+
+  frontend:
+    cgroup_parent: ayla.slice
+    deploy:
+      resources:
+        limits:
+          memory: 96M
+          cpus: '0.15'
+
+  hermes:
+    cgroup_parent: ayla.slice
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.00'
+
+  whatsapp:
+    cgroup_parent: ayla.slice
+    environment:
+      NODE_OPTIONS: '--max-old-space-size=512'
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+          cpus: '1.00'
+
+  postgres:
+    cgroup_parent: ayla.slice
+    command: [postgres, -c, max_connections=60, -c, shared_buffers=128MB, -c, work_mem=4MB, -c, maintenance_work_mem=64MB]
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+          cpus: '0.50'
+
+  redis:
+    cgroup_parent: ayla.slice
+    command: [redis-server, --appendonly, 'yes', --maxmemory, 64mb, --maxmemory-policy, noeviction]
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.10'
+
+  rabbitmq:
+    cgroup_parent: ayla.slice
+    volumes:
+      - ./docker/oracle/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: '0.20'
+
+  prometheus:
+    cgroup_parent: ayla.slice
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: '0.30'
+
+  grafana:
+    cgroup_parent: ayla.slice
+    deploy:
+      resources:
+        limits:
+          memory: 320M
+          cpus: '0.25'
+
+  loki:
+    cgroup_parent: ayla.slice
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: '0.30'
+
+  tempo:
+    cgroup_parent: ayla.slice
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.20'
+
+  alloy:
+    cgroup_parent: ayla.slice
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+          cpus: '0.15'
+
+  docker-metrics-proxy:
+    cgroup_parent: ayla.slice
+    deploy:
+      resources:
+        limits:
+          memory: 32M
+          cpus: '0.05'
+
+  node-exporter:
+    cgroup_parent: ayla.slice
+    deploy:
+      resources:
+        limits:
+          memory: 32M
+          cpus: '0.05'
+
+  cadvisor:
+    cgroup_parent: ayla.slice
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+          cpus: '0.10'
+
+  postgres-exporter:
+    cgroup_parent: ayla.slice
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: '0.05'
+
+  redis-exporter:
+    cgroup_parent: ayla.slice
+    deploy:
+      resources:
+        limits:
+          memory: 32M
+          cpus: '0.05'
+
+  blackbox:
+    cgroup_parent: ayla.slice
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: '0.05'
+
+  alertmanager:
+    cgroup_parent: ayla.slice
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: '0.05'

@@ -1,0 +1,15 @@
+CREATE TABLE ai_configurations (
+    id BIGSERIAL PRIMARY KEY,
+
+    name VARCHAR(150) NOT NULL,
+    provider VARCHAR(50) NOT NULL,
+    model VARCHAR(150) NOT NULL,
+    base_url VARCHAR(500),
+
+    api_key_encrypted TEXT,
+
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

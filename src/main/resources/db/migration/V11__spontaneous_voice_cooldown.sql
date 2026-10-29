@@ -1,0 +1,1 @@
+ALTER TABLE chat_conversations ADD COLUMN last_spontaneous_voice_at timestamptz;

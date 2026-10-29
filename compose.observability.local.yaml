@@ -1,0 +1,26 @@
+# Host-run Java API + existing Compose services. Does not enable VPS replicas.
+services:
+  frontend:
+    build:
+      args:
+        VITE_GRAFANA_URL: ${GRAFANA_BROWSER_URL:-http://localhost:3300/d/ayla-vps}
+  prometheus:
+    extra_hosts: ['host.docker.internal:host-gateway']
+    volumes:
+      - ./docker/observability/prometheus.local.yml:/etc/prometheus/prometheus.yml:ro
+      - ./docker/observability/secrets/metrics-token:/run/secrets/metrics-token:ro
+  tempo:
+    ports: ['127.0.0.1:4318:4318']
+  alloy:
+    environment:
+      AYLA_OBSERVABILITY_ENV: ayla-local
+    volumes:
+      - ./target/observability/logs:/var/log/ayla:ro
+  node-exporter:
+    command: [--path.procfs=/host/proc, --path.sysfs=/host/sys, --no-collector.filesystem, --no-collector.diskstats, --no-collector.netdev, --no-collector.netstat, --no-collector.sockstat]
+    volumes: !override
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+  # Linux host mounts required by cAdvisor are unavailable on some Docker Desktop setups.
+  cadvisor:
+    profiles: [linux-host]

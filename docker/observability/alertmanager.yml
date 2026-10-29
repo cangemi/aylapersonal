@@ -1,0 +1,11 @@
+global:
+  resolve_timeout: 5m
+route:
+  receiver: grafana-only
+  group_by: [alertname, job]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+# Alerts appear in Prometheus/Grafana. Configure an explicit destination before sending notifications.
+receivers:
+  - name: grafana-only

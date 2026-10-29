@@ -1,0 +1,129 @@
+services:
+
+  frontend:
+    build: ./frontend
+    container_name: ayla-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ayla_frontend_certs:/var/lib/ayla-certs
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  hermes:
+    image: nousresearch/hermes-agent@sha256:7a69201726bc64db2072a1371557137c23312d29705cda2b8ea2a0214a50a4cf
+    container_name: ayla-hermes
+    restart: unless-stopped
+    entrypoint: ["/opt/hermes/.venv/bin/python", "/opt/ayla/bootstrap.py"]
+    environment:
+      API_SERVER_ENABLED: "true"
+      API_SERVER_HOST: "0.0.0.0"
+      API_SERVER_KEY: ${HERMES_API_SERVER_KEY:?Defina HERMES_API_SERVER_KEY no arquivo .env}
+      HERMES_HOME: /opt/data
+      AYLA_JAVA_BASE_URL: ${AYLA_JAVA_BASE_URL:-http://host.docker.internal:8080}
+      AYLA_FINANCE_BRIDGE_KEY: ${AYLA_FINANCE_BRIDGE_KEY:?Defina AYLA_FINANCE_BRIDGE_KEY no arquivo .env}
+      HERMES_DASHBOARD: "1"
+      HERMES_DASHBOARD_HOST: "0.0.0.0"
+      HERMES_DASHBOARD_BASIC_AUTH_USERNAME: ${HERMES_DASHBOARD_USERNAME:-ayla}
+      HERMES_DASHBOARD_BASIC_AUTH_PASSWORD: ${HERMES_DASHBOARD_PASSWORD:?Defina HERMES_DASHBOARD_PASSWORD no arquivo .env}
+      HERMES_DASHBOARD_BASIC_AUTH_SECRET: ${HERMES_DASHBOARD_SECRET:?Defina HERMES_DASHBOARD_SECRET no arquivo .env}
+    ports:
+      - "127.0.0.1:8642:8642"
+      - "127.0.0.1:9119:9119"
+    volumes:
+      - hermes_data:/opt/data
+      - ./docker/hermes/bootstrap.py:/opt/ayla/bootstrap.py:ro
+      - ./docker/hermes/prepare_voice.py:/opt/ayla/prepare_voice.py:ro
+      - ./docker/hermes/prepare_auth.py:/opt/ayla/prepare_auth.py:ro
+      - ./docker/hermes/SOUL.md:/opt/ayla/SOUL.md:ro
+      - ./docker/hermes/plugins/ayla-research:/opt/ayla/plugins/ayla-research:ro
+      - ./docker/hermes/plugins/ayla-finance:/opt/ayla/plugins/ayla-finance:ro
+    healthcheck:
+      test: ["CMD", "/opt/hermes/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8642/health', timeout=5)"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
+  whatsapp:
+    build: ./agentNode
+    container_name: ayla-whatsapp
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 25s
+    environment:
+      WHATSAPP_HOST: 0.0.0.0
+      AYLA_WHATSAPP_PORT: 4000
+      WHATSAPP_CLIENT_ID: ayla
+      AYLA_CHAT_OWNER_ID: ${AYLA_CHAT_OWNER_ID:-local-owner}
+      AYLA_WHATSAPP_API_KEY: ${AYLA_WHATSAPP_API_KEY:?Configure AYLA_WHATSAPP_API_KEY}
+      WHATSAPP_SESSION_KEY: ${WHATSAPP_SESSION_KEY:?Configure WHATSAPP_SESSION_KEY}
+      WHATSAPP_JAVA_BASE_URL: http://host.docker.internal:8080
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ayla
+      DB_USER: ayla
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "127.0.0.1:4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: ayla-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ayla
+      POSTGRES_USER: ayla
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ayla -d ayla"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: ayla-redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    container_name: ayla-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ayla
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./docker/observability/rabbitmq-plugins:/etc/rabbitmq/enabled_plugins:ro
+
+volumes:
+  ayla_frontend_certs:
+  hermes_data:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:

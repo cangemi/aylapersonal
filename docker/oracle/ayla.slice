@@ -1,0 +1,13 @@
+[Unit]
+Description=Ayla - Oracle A1 2 OCPUs / 12 GB budget
+
+[Slice]
+CPUAccounting=yes
+CPUQuota=180%
+MemoryAccounting=yes
+MemoryHigh=9G
+MemoryMax=10G
+MemorySwapMax=0
+
+[Install]
+WantedBy=multi-user.target

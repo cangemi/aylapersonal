@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="pt-BR">
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" /><meta
+    name="theme-color"
+    content="#120f1e"
+  /><title>Ayla · Sem conexão</title>
+  <style>
+    body {
+      margin: 0;
+      background: #120f1e;
+      color: #f0e9ff;
+      font: 17px system-ui;
+      min-height: 100dvh;
+      display: grid;
+      place-items: center;
+    }
+    main {
+      max-width: 340px;
+      padding: 32px;
+      text-align: center;
+    }
+    img {
+      width: 96px;
+    }
+    p {
+      color: #b8adc9;
+      line-height: 1.6;
+    }
+    button {
+      background: #bd9bf5;
+      border: 0;
+      border-radius: 16px;
+      padding: 15px 24px;
+      font: inherit;
+      color: #120f1e;
+      cursor: pointer;
+    }
+  </style>
+  <main>
+    <img src="/app-icon.svg" alt="Ayla" />
+    <h1>Já volto pro papo.</h1>
+    <p>Não consegui conectar agora. Confira sua internet e se o servidor da Ayla está ligado.</p>
+    <button onclick="location.reload()">Tentar novamente</button>
+  </main>
+</html>

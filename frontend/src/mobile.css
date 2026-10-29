@@ -1,0 +1,295 @@
+.mobile-dock,
+.mobile-chat-action {
+  display: none;
+}
+.install-app-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--accent);
+  background: var(--accent-bg);
+  font-size: 12px;
+}
+.mobile-conversation-list {
+  display: grid;
+  gap: 10px;
+}
+.mobile-conversation-list .conversation-link {
+  width: 100%;
+  max-width: none;
+  min-height: 54px;
+  padding: 14px;
+  font-size: 14px;
+  margin: 0;
+  border: 1px solid var(--line);
+}
+.mobile-conversation-list .conversation-link > svg:last-child {
+  margin-left: auto;
+}
+.chat-main .chat-welcome {
+  flex-shrink: 0;
+}
+.chat-welcome .suggestions button:focus-visible,
+.mobile-dock a:focus-visible,
+.mobile-dock button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+@media (max-width: 900px) {
+  .main {
+    padding-bottom: calc(66px + env(safe-area-inset-bottom));
+  }
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 15;
+    background: var(--bg);
+  }
+  .topbar-right .private-label {
+    display: none;
+  }
+  .install-app-button {
+    min-height: 40px;
+    padding: 8px;
+    font-size: 11px;
+  }
+  .install-app-button span {
+    max-width: 76px;
+    white-space: nowrap;
+  }
+  .mobile-dock {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 20;
+    min-height: 66px;
+    padding: 5px max(8px, env(safe-area-inset-right)) max(5px, env(safe-area-inset-bottom))
+      max(8px, env(safe-area-inset-left));
+    border-top: 1px solid var(--line);
+    background: var(--panel);
+    box-shadow: 0 -8px 28px #00000012;
+  }
+  .mobile-dock a,
+  .mobile-dock button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    min-width: 0;
+    min-height: 50px;
+    border-radius: 14px;
+    font-size: 10px;
+    color: var(--muted);
+    text-decoration: none;
+  }
+  .mobile-dock .active {
+    color: var(--accent);
+    background: var(--accent-bg);
+  }
+  .page-footer {
+    display: none;
+  }
+  .chat-layout {
+    height: var(
+      --chat-available-height,
+      calc(100dvh - 128px - env(safe-area-inset-top) - env(safe-area-inset-bottom))
+    );
+    min-height: 0;
+    flex-direction: row;
+  }
+  .chat-layout > .conversation-sidebar {
+    display: none;
+  }
+  .mobile-chat-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 40px;
+    min-height: 44px;
+  }
+  .chat-header {
+    display: flex;
+    padding: 8px 12px;
+    gap: 9px;
+    flex-shrink: 0;
+  }
+  .chat-header > div {
+    flex: 1;
+    min-width: 0;
+  }
+  .chat-header .ayla-avatar {
+    width: 38px;
+    height: 38px;
+  }
+  .chat-header small {
+    font-size: 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .chat-new-button {
+    margin-left: auto;
+  }
+  .chat-whatsapp-button {
+    margin: 0;
+    padding: 8px;
+    min-width: 40px;
+    min-height: 44px;
+  }
+  .chat-whatsapp-button span {
+    display: none;
+  }
+  .chat-scroll {
+    padding: 16px 14px;
+    scrollbar-width: thin;
+  }
+  .chat-welcome {
+    min-height: 100%;
+    justify-content: center;
+    padding: 12px 0 20px;
+  }
+  .chat-welcome-star {
+    display: block;
+    width: min(235px, 70%);
+    max-height: 155px;
+    height: auto;
+    margin: 0 0 12px;
+    object-fit: contain;
+  }
+  .chat-welcome h1 {
+    font-size: 23px;
+    line-height: 1.25;
+  }
+  .chat-welcome p {
+    font-size: 13px;
+    margin: 10px 0 18px;
+  }
+  .chat-welcome .suggestions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .chat-welcome .suggestions button {
+    padding: 12px 10px;
+    min-height: 68px;
+    font-size: 12px;
+    line-height: 1.45;
+    gap: 8px;
+  }
+  .chat-welcome .suggestions button > svg:last-child {
+    display: none;
+  }
+  .composer-wrap {
+    margin: 0 auto;
+    padding: 8px 10px 10px;
+    background: var(--bg);
+  }
+  .composer {
+    border-radius: 22px;
+    padding: 10px;
+  }
+  .composer textarea {
+    min-height: 42px;
+    max-height: 135px;
+    font-size: 16px;
+  }
+  .composer-note {
+    display: none;
+  }
+  .chat-message.user {
+    margin-left: 22px;
+  }
+  .chat-message.assistant {
+    margin-right: 6px;
+  }
+  .message-content {
+    min-width: 0;
+  }
+  .message-content audio {
+    max-width: 100%;
+  }
+  .toast-stack {
+    bottom: calc(82px + env(safe-area-inset-bottom));
+  }
+}
+@media (max-width: 370px) {
+  .install-app-button span {
+    display: none;
+  }
+  .chat-welcome .suggestions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .chat-welcome .suggestions button {
+    min-height: 48px;
+  }
+}
+@media (max-width: 900px) and (max-height: 500px) {
+  .chat-welcome {
+    justify-content: flex-start;
+  }
+  .chat-welcome-star {
+    display: block;
+    max-height: 85px;
+    width: 130px;
+  }
+}
+
+.calendar-alert-button {
+  position: relative;
+}
+.calendar-alert-count {
+  position: absolute;
+  top: 0;
+  right: 0;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 20px;
+  display: grid;
+  place-items: center;
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 9px;
+  font-weight: 700;
+}
+@media (max-width: 520px) {
+  .topbar .install-app-button span {
+    display: none;
+  }
+}
+
+.conversation-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.conversation-row .conversation-link {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+}
+.conversation-sidebar .conversation-row {
+  margin-bottom: 6px;
+}
+.conversation-delete {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.conversation-delete:hover {
+  color: var(--red);
+  background: var(--red-bg);
+}
+.mobile-conversation-list .conversation-row {
+  gap: 8px;
+}
+.mobile-conversation-list .conversation-delete {
+  min-width: 44px;
+  min-height: 44px;
+}
