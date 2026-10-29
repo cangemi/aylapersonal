@@ -1,0 +1,10 @@
+.git
+.env*
+node_modules
+.wwebjs_auth
+.wwebjs_cache
+.wwebjs_remote
+runtime
+*.log
+allowed_groups.json
+test
