@@ -68,7 +68,7 @@ jobs:
           images: cangemi/${{ matrix.image }}
           flavor: latest=false
           tags: |
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
             type=ref,event=branch,prefix=branch-
             type=ref,event=pr
             type=sha,format=long
@@ -117,13 +117,11 @@ jobs:
     name: Deploy to Oracle Cloud
     needs: images
 
-    # Deploy temporariamente desativado.
-    # Para ativar posteriormente, substituir por:
-    # if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    if: ${{ false }}
+    # Deploy automatico apenas na branch main.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
 
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     environment: env
 
     steps:
@@ -136,11 +134,17 @@ jobs:
         env:
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
           VPS_HOST_KEY: ${{ secrets.VPS_HOST_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
         run: |
           set -euo pipefail
 
-          test -n "$VPS_SSH_KEY"
-          test -n "$VPS_HOST_KEY"
+          for name in VPS_SSH_KEY VPS_HOST_KEY VPS_HOST VPS_USER; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Missing $name"
+              exit 1
+            fi
+          done
 
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
@@ -165,7 +169,7 @@ jobs:
             -o StrictHostKeyChecking=yes \
             -o ConnectTimeout=15 \
             "$VPS_USER@$VPS_HOST" \
-            'echo "SSH OK"; docker info --format "{{.ServerVersion}}"'
+            'echo "SSH OK"; docker info --format "{{.ServerVersion}}"; docker compose version'
 
       - name: Prepare deployment package
         run: |
@@ -203,6 +207,8 @@ jobs:
           VPS_USER: ${{ secrets.VPS_USER }}
           DEPLOY_SHA: ${{ github.sha }}
         run: |
+          set -euo pipefail
+
           ssh \
             -i ~/.ssh/id_ed25519 \
             -o IdentitiesOnly=yes \
@@ -222,8 +228,7 @@ jobs:
             exit 1
           fi
 
-          # Extrai os arquivos no diretorio estavel.
-          # Preserva o .env e os volumes Docker persistentes.
+          echo "Extracting deployment package..."
           tar -xzf /tmp/ayla-deploy.tar.gz -C /opt/ayla
           rm -f /tmp/ayla-deploy.tar.gz
 
@@ -240,6 +245,29 @@ jobs:
           echo "Validating Docker Compose..."
           docker compose "${COMPOSE_FILES[@]}" config --quiet
 
+          echo "Checking application image references..."
+          for spec in \
+            "api:cangemi/ayla-api:$TAG" \
+            "frontend:cangemi/ayla-frontend:$TAG" \
+            "whatsapp:cangemi/ayla-whatsapp:$TAG"; do
+
+            service="${spec%%:*}"
+            expected="${spec#*:}"
+
+            actual="$(
+              docker compose "${COMPOSE_FILES[@]}" \
+                config --format json |
+                python3 -c "import json,sys; print(json.load(sys.stdin)['services']['$service'].get('image',''))"
+            )"
+
+            if [[ "$actual" != "$expected" ]]; then
+              echo "ERROR: Wrong image for $service"
+              echo "Expected: $expected"
+              echo "Actual: $actual"
+              exit 1
+            fi
+          done
+
           echo "Pulling application images..."
           docker pull "cangemi/ayla-api:$TAG"
           docker pull "cangemi/ayla-frontend:$TAG"
@@ -251,18 +279,27 @@ jobs:
           echo "Starting services..."
           docker compose "${COMPOSE_FILES[@]}" up -d --no-build
 
+          echo "Waiting for service readiness..."
+          docker compose "${COMPOSE_FILES[@]}" up \
+            -d \
+            --no-build \
+            --wait \
+            --wait-timeout 300
+
           echo "Container status:"
           docker compose "${COMPOSE_FILES[@]}" ps
 
-          echo "Deployment commands completed for $SHA"
+          echo "Deployment completed successfully for $SHA"
           REMOTE
 
       - name: Deployment summary
+        if: success()
         env:
           DEPLOY_SHA: ${{ github.sha }}
         run: |
           echo "## Oracle Cloud deployment" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Status: Success" >> "$GITHUB_STEP_SUMMARY"
           echo "Commit: \`$DEPLOY_SHA\`" >> "$GITHUB_STEP_SUMMARY"
           echo "Target: Oracle Cloud ARM64" >> "$GITHUB_STEP_SUMMARY"
           echo "Project: ayla" >> "$GITHUB_STEP_SUMMARY"
