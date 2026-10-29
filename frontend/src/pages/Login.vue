@@ -1,4 +1,5 @@
 <script setup>
+import PasswordInput from '../components/PasswordInput.vue'
 import { ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { api, setSession } from '../lib/api'
@@ -124,9 +125,8 @@ async function submit() {
             placeholder="Como você se chama por aqui?"
             :disabled="busy" /></label
         ><label v-if="mode !== 'forgot'"
-          >Senha<input
+          >Senha<PasswordInput
             v-model="password"
-            type="password"
             :autocomplete="mode === 'setup' ? 'new-password' : 'current-password'"
             :minlength="mode === 'setup' ? 12 : 1"
             required
@@ -134,9 +134,8 @@ async function submit() {
             placeholder="Sua senha"
             :disabled="busy" /></label
         ><label v-if="mode === 'setup'"
-          >Chave de configuração<input
+          >Chave de configuração<PasswordInput
             v-model="setupKey"
-            type="password"
             autocomplete="off"
             required
             placeholder="AYLA_AUTH_SETUP_KEY"

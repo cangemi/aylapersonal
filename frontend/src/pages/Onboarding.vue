@@ -1,4 +1,5 @@
 <script setup>
+import PasswordInput from '../components/PasswordInput.vue'
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, auth, setSession } from '../lib/api'
@@ -49,7 +50,9 @@ async function loadHermes() {
   error.value = ''
   try {
     const current = await api('/me/hermes/status')
-    hermes.value = current.provisioned ? current : await api('/me/hermes/provision', { method: 'POST' })
+    hermes.value = current.provisioned
+      ? current
+      : await api('/me/hermes/provision', { method: 'POST' })
     if (hermes.value.ready) {
       stopPolling()
       login.value = null
@@ -171,11 +174,7 @@ if (!steps.length) finish()
       <div class="login-identity"><AylaLogo /></div>
       <span class="eyebrow">CONFIGURAÇÃO INICIAL · {{ index + 1 }} DE {{ steps.length }}</span>
       <ol class="onboarding-steps">
-        <li
-          v-for="(s, i) in steps"
-          :key="s.id"
-          :class="{ active: i === index, done: i < index }"
-        >
+        <li v-for="(s, i) in steps" :key="s.id" :class="{ active: i === index, done: i < index }">
           {{ s.label }}
         </li>
       </ol>
@@ -191,7 +190,11 @@ if (!steps.length) finish()
             placeholder="Ex.: Godofredo"
             :disabled="busy"
         /></label>
-        <button class="button primary full" :disabled="busy || !displayName.trim()" @click="saveName">
+        <button
+          class="button primary full"
+          :disabled="busy || !displayName.trim()"
+          @click="saveName"
+        >
           Continuar<Icon name="arrow" :size="18" />
         </button>
       </template>
@@ -200,17 +203,15 @@ if (!steps.length) finish()
         <h2>Crie a sua senha</h2>
         <p class="muted">A senha atual foi definida por quem criou o seu acesso.</p>
         <label
-          >Senha atual<input
+          >Senha atual<PasswordInput
             v-model="password.currentPassword"
-            type="password"
             autocomplete="current-password"
             required
             :disabled="busy"
         /></label>
         <label
-          >Nova senha (mínimo de 12 caracteres)<input
+          >Nova senha (mínimo de 12 caracteres)<PasswordInput
             v-model="password.newPassword"
-            type="password"
             autocomplete="new-password"
             minlength="12"
             maxlength="256"
@@ -218,9 +219,8 @@ if (!steps.length) finish()
             :disabled="busy"
         /></label>
         <label
-          >Repita a nova senha<input
+          >Repita a nova senha<PasswordInput
             v-model="password.confirm"
-            type="password"
             autocomplete="new-password"
             required
             :disabled="busy"
@@ -263,11 +263,7 @@ if (!steps.length) finish()
       <template v-else-if="step === 'hermes'">
         <h2>Prepare o Hermes</h2>
         <p class="muted">Criamos o seu assistente pessoal aqui mesmo, sem sair da Ayla.</p>
-        <div
-          v-if="hermes"
-          :class="['banner', hermes.ready ? 'success' : 'info']"
-          role="status"
-        >
+        <div v-if="hermes" :class="['banner', hermes.ready ? 'success' : 'info']" role="status">
           {{ hermes.message }}
         </div>
         <div v-if="login" class="login-code">
@@ -297,9 +293,7 @@ if (!steps.length) finish()
         </div>
       </template>
 
-      <button type="button" class="text-link full" :disabled="busy" @click="leave">
-        Sair
-      </button>
+      <button type="button" class="text-link full" :disabled="busy" @click="leave">Sair</button>
     </form>
   </main>
 </template>

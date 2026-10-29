@@ -1,4 +1,5 @@
 <script setup>
+import PasswordInput from '../components/PasswordInput.vue'
 import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { api, auth, setSession, query } from '../lib/api'
 import { timestamp } from '../lib/format'
@@ -380,24 +381,21 @@ onMounted(load)
       <form @submit.prevent="changePassword">
         <h3>Alterar senha</h3>
         <label
-          >Senha atual<input
+          >Senha atual<PasswordInput
             v-model="password.currentPassword"
-            type="password"
             autocomplete="current-password"
             required /></label
         ><label
-          >Nova senha<input
+          >Nova senha<PasswordInput
             v-model="password.newPassword"
-            type="password"
             autocomplete="new-password"
             minlength="12"
             maxlength="256"
             required
           /><small>Pelo menos 12 caracteres, até 72 bytes.</small></label
         ><label
-          >Confirme a nova senha<input
+          >Confirme a nova senha<PasswordInput
             v-model="password.confirm"
-            type="password"
             autocomplete="new-password"
             required /></label
         ><button class="button primary" :disabled="busy">Salvar nova senha</button>
@@ -418,9 +416,8 @@ onMounted(load)
         </p>
         <form @submit.prevent="bind">
           <label
-            >Confirme sua senha atual<input
+            >Confirme sua senha atual<PasswordInput
               v-model="recovery"
-              type="password"
               autocomplete="current-password"
               required /></label
           ><button class="button secondary" :disabled="busy">Vincular número conectado</button>
@@ -546,9 +543,8 @@ onMounted(load)
             maxlength="120"
             required /></label
         ><label
-          >Senha inicial<input
+          >Senha inicial<PasswordInput
             v-model="user.password"
-            type="password"
             autocomplete="new-password"
             minlength="12"
             maxlength="256"
@@ -683,9 +679,8 @@ onMounted(load)
     <form @submit.prevent="resetPassword">
       <div v-if="resetError" class="banner error" role="alert">{{ resetError }}</div>
       <label
-        >Nova senha do usuário<input
+        >Nova senha do usuário<PasswordInput
           v-model="resetForm.newPassword"
-          type="password"
           autocomplete="new-password"
           minlength="12"
           maxlength="256"
@@ -694,9 +689,8 @@ onMounted(load)
         /><small>Pelo menos 12 caracteres, até 72 bytes.</small></label
       >
       <label
-        >Confirme a senha do usuário<input
+        >Confirme a senha do usuário<PasswordInput
           v-model="resetForm.confirm"
-          type="password"
           autocomplete="new-password"
           minlength="12"
           maxlength="256"
