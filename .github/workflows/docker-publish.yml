@@ -65,7 +65,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         with:
-          images: aylapersonal/${{ matrix.image }}
+          images: cangemi/${{ matrix.image }}
           flavor: latest=false
           tags: |
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
@@ -118,7 +118,7 @@ jobs:
     needs: images
 
     # Deploy temporariamente desativado.
-    # Ativar depois de validar as imagens e a configuracao da VPS.
+    # Para ativar posteriormente, substituir por:
     # if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     if: ${{ false }}
 
@@ -222,7 +222,8 @@ jobs:
             exit 1
           fi
 
-          # Preserva o .env e os volumes persistentes.
+          # Extrai os arquivos no diretorio estavel.
+          # Preserva o .env e os volumes Docker persistentes.
           tar -xzf /tmp/ayla-deploy.tar.gz -C /opt/ayla
           rm -f /tmp/ayla-deploy.tar.gz
 
@@ -240,9 +241,9 @@ jobs:
           docker compose "${COMPOSE_FILES[@]}" config --quiet
 
           echo "Pulling application images..."
-          docker pull "aylapersonal/ayla-api:$TAG"
-          docker pull "aylapersonal/ayla-frontend:$TAG"
-          docker pull "aylapersonal/ayla-whatsapp:$TAG"
+          docker pull "cangemi/ayla-api:$TAG"
+          docker pull "cangemi/ayla-frontend:$TAG"
+          docker pull "cangemi/ayla-whatsapp:$TAG"
 
           echo "Pulling infrastructure images..."
           docker compose "${COMPOSE_FILES[@]}" pull --ignore-buildable

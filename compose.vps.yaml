@@ -1,8 +1,18 @@
-# Linux ARM64/x86_64 deployment overlay. Always use with compose.yaml.
+
+# Linux ARM64/x86_64 deployment overlay.
+# Use with compose.yaml.
+#
+# Local build:
 # docker compose -f compose.yaml -f compose.vps.yaml up -d --build
+#
+# Oracle deployment:
+# docker compose -f compose.yaml -f compose.vps.yaml \
+#   -f compose.observability.yaml -f compose.oracle-free.yaml \
+#   up -d --no-build
+
 services:
   api:
-    image: aylapersonal/ayla-api:${AYLA_IMAGE_TAG:-latest}
+    image: cangemi/ayla-api:${AYLA_IMAGE_TAG:-latest}
     build: .
     restart: unless-stopped
     init: true
@@ -65,7 +75,7 @@ services:
     logging: *bounded-logs
 
   frontend:
-    image: aylapersonal/ayla-frontend:${AYLA_IMAGE_TAG:-latest}
+    image: cangemi/ayla-frontend:${AYLA_IMAGE_TAG:-latest}
     build:
       args:
         VITE_GRAFANA_URL: ${GRAFANA_BROWSER_URL:-http://localhost:3300/d/ayla-vps}
@@ -90,7 +100,7 @@ services:
     logging: *bounded-logs
 
   whatsapp:
-    image: aylapersonal/ayla-whatsapp:${AYLA_IMAGE_TAG:-latest}
+    image: cangemi/ayla-whatsapp:${AYLA_IMAGE_TAG:-latest}
     environment:
       WHATSAPP_JAVA_BASE_URL: http://api-gateway:8080
     deploy:
@@ -106,6 +116,7 @@ services:
         limits:
           memory: 1G
     logging: *bounded-logs
+
   redis:
     command: [redis-server, --appendonly, 'yes', --maxmemory, 128mb, --maxmemory-policy, noeviction]
     deploy:
@@ -113,6 +124,7 @@ services:
         limits:
           memory: 256M
     logging: *bounded-logs
+
   rabbitmq:
     volumes:
       - ./docker/observability/rabbitmq-plugins:/etc/rabbitmq/enabled_plugins:ro
