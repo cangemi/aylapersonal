@@ -1,23 +1,28 @@
-name: Build and publish Docker images
+
+name: Build, publish and deploy Ayla
 
 on:
   push:
+    branches:
+      - main
   pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# Newer pushes supersede in-progress builds of the same branch.
 concurrency:
-  group: docker-publish-${{ github.ref }}
-  cancel-in-progress: true
+  group: ayla-deploy-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   images:
-    name: ${{ matrix.component }}
+    name: Build ${{ matrix.component }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+
     strategy:
       fail-fast: false
       matrix:
@@ -26,10 +31,12 @@ jobs:
             image: ayla-api
             context: .
             dockerfile: ./Dockerfile
+
           - component: frontend
             image: ayla-frontend
             context: ./frontend
             dockerfile: ./frontend/Dockerfile
+
           - component: whatsapp
             image: ayla-whatsapp
             context: ./agentNode
@@ -46,21 +53,22 @@ jobs:
         env:
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
+          set -euo pipefail
+
           if [[ -z "$DOCKERHUB_TOKEN" ]]; then
-            echo "::error::Configure the repository secret DOCKERHUB_TOKEN with a Docker Hub access token allowed to push to aylapersonal."
+            echo "::error::Missing DOCKERHUB_TOKEN"
             exit 1
           fi
 
-      - name: Generate image tags and labels
+      - name: Generate image tags
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         with:
           images: aylapersonal/${{ matrix.image }}
           flavor: latest=false
           tags: |
-            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=ref,event=branch,prefix=branch-
-            type=ref,event=tag,prefix=release-
             type=ref,event=pr
             type=sha,format=long
 
@@ -101,4 +109,155 @@ jobs:
           IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
         run: |
-          printf '### Docker Hub\n\n%s\n\nDigest: %s\n' "$IMAGE_TAGS" "$IMAGE_DIGEST" >> "$GITHUB_STEP_SUMMARY"
+          printf '### Docker Hub\n\n%s\n\nDigest: %s\n' \
+            "$IMAGE_TAGS" "$IMAGE_DIGEST" >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    name: Deploy to Oracle Cloud
+    needs: images
+    if: ${{ false }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: production
+
+    steps:
+      - name: Checkout deployment configuration
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Configure SSH
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST_KEY: ${{ secrets.VPS_HOST_KEY }}
+        run: |
+          set -euo pipefail
+
+          test -n "$VPS_SSH_KEY"
+          test -n "$VPS_HOST_KEY"
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+          printf '%s\n' "$VPS_HOST_KEY" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Test SSH connection
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+
+          ssh \
+            -i ~/.ssh/id_ed25519 \
+            -o IdentitiesOnly=yes \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$VPS_USER@$VPS_HOST" \
+            'echo "SSH OK"; docker info --format "{{.ServerVersion}}"'
+
+      - name: Prepare deployment package
+        run: |
+          set -euo pipefail
+
+          mkdir -p deployment
+
+          cp compose.yaml deployment/
+          cp compose.vps.yaml deployment/
+          cp compose.observability.yaml deployment/
+          cp compose.oracle-free.yaml deployment/
+
+          cp -a docker deployment/
+          cp -a scripts deployment/
+
+          tar -czf ayla-deploy.tar.gz -C deployment .
+
+      - name: Upload deployment package
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+
+          scp \
+            -i ~/.ssh/id_ed25519 \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            ayla-deploy.tar.gz \
+            "$VPS_USER@$VPS_HOST:/tmp/ayla-deploy.tar.gz"
+
+      - name: Deploy containers
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          ssh \
+            -i ~/.ssh/id_ed25519 \
+            -o IdentitiesOnly=yes \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" \
+            "bash -s -- '$DEPLOY_SHA'" <<'REMOTE'
+          set -euo pipefail
+
+          SHA="$1"
+          TAG="sha-$SHA"
+
+          cd /opt/ayla
+
+          if [[ ! -f .env ]]; then
+            echo "ERROR: /opt/ayla/.env not found"
+            exit 1
+          fi
+
+          # Extract configuration in the stable project directory.
+          # Existing .env and named Docker volumes are preserved.
+          tar -xzf /tmp/ayla-deploy.tar.gz -C /opt/ayla
+          rm -f /tmp/ayla-deploy.tar.gz
+
+          export AYLA_IMAGE_TAG="$TAG"
+          export COMPOSE_PROJECT_NAME=ayla
+
+          COMPOSE_FILES=(
+            -f compose.yaml
+            -f compose.vps.yaml
+            -f compose.observability.yaml
+            -f compose.oracle-free.yaml
+          )
+
+          echo "Validating Docker Compose..."
+          docker compose "${COMPOSE_FILES[@]}" config --quiet
+
+          echo "Pulling application images..."
+          docker pull "aylapersonal/ayla-api:$TAG"
+          docker pull "aylapersonal/ayla-frontend:$TAG"
+          docker pull "aylapersonal/ayla-whatsapp:$TAG"
+
+          echo "Pulling infrastructure images..."
+          docker compose "${COMPOSE_FILES[@]}" pull --ignore-buildable
+
+          echo "Starting services..."
+          docker compose "${COMPOSE_FILES[@]}" up -d --no-build
+
+          echo "Container status:"
+          docker compose "${COMPOSE_FILES[@]}" ps
+
+          echo "Deployment commands completed for $SHA"
+          REMOTE
+
+      - name: Deployment summary
+        env:
+          DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          echo "## Oracle Cloud deployment" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Commit: \`$DEPLOY_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Target: Oracle Cloud ARM64" >> "$GITHUB_STEP_SUMMARY"
+          echo "Project: ayla" >> "$GITHUB_STEP_SUMMARY"
+          echo "Image tag: \`sha-$DEPLOY_SHA\`" >> "$GITHUB_STEP_SUMMARY"
