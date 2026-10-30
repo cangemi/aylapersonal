@@ -128,6 +128,78 @@ test('onboarding can skip WhatsApp even when the service is unavailable', async 
   await expect(page.getByRole('heading', { name: 'Prepare o Hermes' })).toBeVisible()
 })
 
+for (const path of ['/configuracao-inicial', '/whatsapp']) {
+  test(`QR loading stays visible and independent until each requested image loads: ${path}`, async ({
+    page,
+  }) => {
+    const { state } = await fixture(page, { onboarding: path === '/configuracao-inicial' })
+    state.mode = 'dedicated'
+    state.ayla = { connected: false, state: 'disconnected' }
+    const reads = { user: 0, ayla: 0 }
+    const image =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII='
+    await page.route('**/api/v1/me/whatsapp/**', async (route) => {
+      const endpoint = new URL(route.request().url()).pathname
+      const role = endpoint.includes('/ayla/') ? 'ayla' : 'user'
+      if (endpoint.endsWith('/connect')) {
+        const account = role === 'ayla' ? state.ayla : state
+        account.state = 'connecting'
+        return route.fulfill({ json: { state: 'connecting' } })
+      }
+      if (endpoint.endsWith('/qr')) {
+        reads[role]++
+        return route.fulfill({
+          json: {
+            state: 'awaiting_qr',
+            qrImageDataUrl: reads[role] >= (role === 'user' ? 3 : 2) ? image : null,
+          },
+        })
+      }
+      return route.fallback()
+    })
+    await page.goto(path)
+    const own = page.locator('.whatsapp-account[data-role="user"]')
+    const ayla = page.locator('.whatsapp-account[data-role="ayla"]')
+    await expect(ayla).toBeVisible()
+    expect(reads).toEqual({ user: 0, ayla: 0 })
+    await own.getByRole('button', { name: 'Conectar meu WhatsApp' }).click()
+    await expect(own.locator('.qr-placeholder')).toHaveAttribute('aria-busy', 'true')
+    await expect(ayla.locator('.qr-placeholder')).toHaveAttribute('aria-busy', 'false')
+    await expect.poll(() => reads.user).toBeGreaterThanOrEqual(2)
+    await expect(own.locator('.qr-loading')).toBeVisible()
+    expect(reads.ayla).toBe(0)
+    await expect(own.getByRole('img')).toBeVisible({ timeout: 10000 })
+    await expect(own.locator('.qr-loading')).toHaveCount(0)
+    await ayla.getByRole('button', { name: 'Conectar número da Ayla' }).click()
+    await expect(ayla.locator('.qr-loading')).toBeVisible()
+    await expect(own.getByRole('img')).toBeVisible()
+    await expect(ayla.getByRole('img')).toBeVisible({ timeout: 10000 })
+    await expect(ayla.locator('.qr-loading')).toHaveCount(0)
+  })
+}
+
+test('failed QR generation stops only that account and allows retry without loading its companion', async ({
+  page,
+}) => {
+  const { state } = await fixture(page)
+  state.mode = 'dedicated'
+  state.ayla = { connected: false }
+  let attempts = 0
+  await page.route('**/api/v1/me/whatsapp/connect', (route) => {
+    attempts++
+    return route.fulfill({ status: 503, json: { message: 'Falha ao preparar a conexão' } })
+  })
+  await page.goto('/whatsapp')
+  const own = page.locator('.whatsapp-account[data-role="user"]')
+  const ayla = page.locator('.whatsapp-account[data-role="ayla"]')
+  await own.getByRole('button', { name: 'Conectar meu WhatsApp' }).click()
+  await expect(own.getByRole('alert')).toContainText('Falha ao preparar a conexão')
+  await expect(own.locator('.qr-placeholder')).toHaveAttribute('aria-busy', 'false')
+  await expect(ayla.locator('.qr-placeholder')).toHaveAttribute('aria-busy', 'false')
+  await own.getByRole('button', { name: 'Conectar meu WhatsApp' }).click()
+  await expect.poll(() => attempts).toBe(2)
+})
+
 test('disconnected chat button explains the connection and provides cancel and configuration actions', async ({
   page,
 }) => {

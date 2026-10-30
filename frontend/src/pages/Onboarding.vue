@@ -304,12 +304,16 @@ const advance = () => {
 
           <template v-else-if="step === 'hermes'">
             <h2>Prepare o Hermes</h2>
-            <p class="muted">Criamos o seu assistente pessoal aqui mesmo, sem sair da Ayla.</p>
+            <p class="muted">
+              Criamos o seu assistente pessoal aqui mesmo, sem sair da Ayla. Ele prepara a conta no
+              Nous e conecta a Ayla a esse assistente.
+            </p>
             <div v-if="hermes" :class="['banner', hermes.ready ? 'success' : 'info']" role="status">
               {{ hermes.message }}
             </div>
             <div v-if="login" class="login-code">
-              <p>Abra o link, entre na Nous e confirme o código:</p>
+              <p></p>
+              <p>Entre no Nous e confirma o código para conectar:</p>
               <strong class="user-code">{{ login.user_code }}</strong>
               <a class="button" :href="login.verification_url" target="_blank" rel="noopener">
                 Abrir a Nous
@@ -319,7 +323,7 @@ const advance = () => {
             <div class="onboarding-actions">
               <button
                 v-if="hermes?.connected && !hermes.loggedIn"
-                class="button"
+                class="button primary"
                 type="button"
                 :disabled="busy"
                 @click="startLogin"

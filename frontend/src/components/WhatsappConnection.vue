@@ -5,17 +5,65 @@ import { confirmAction } from '../lib/ui'
 import Icon from './Icon.vue'
 
 const emit = defineEmits(['status'])
+const emptySession = () => ({
+  requested: false,
+  loading: false,
+  loaded: false,
+  busy: false,
+  image: null,
+  error: '',
+})
 const status = ref(null),
   mode = ref('own'),
-  qr = ref(null),
-  aylaQr = ref(null),
   busy = ref(false),
-  loading = ref(false),
-  error = ref('')
+  error = ref(''),
+  sessions = ref({ user: emptySession(), ayla: emptySession() })
 let disposed = false,
   polling = false,
-  revision = 0
+  revision = 0,
+  timer
 const ready = computed(() => status.value?.ready ?? status.value?.connected ?? false)
+const anyAction = computed(
+  () => busy.value || Object.values(sessions.value).some((session) => session.busy),
+)
+function fail(session, message) {
+  Object.assign(session, {
+    requested: false,
+    loading: false,
+    loaded: false,
+    image: null,
+    error: message,
+  })
+}
+async function refreshQr(role, account) {
+  const session = sessions.value[role]
+  if (account?.connected) {
+    if (session.requested || session.image || session.error) sessions.value[role] = emptySession()
+    return
+  }
+  if (!session.requested || session.busy) return
+  if (['error', 'auth_failure', 'logged_out', 'disconnected'].includes(account?.state)) {
+    fail(session, 'A conexão foi interrompida. Clique em conectar para gerar outro QR code.')
+    return
+  }
+  try {
+    const result = await api('/me/whatsapp/' + (role === 'ayla' ? 'ayla/' : '') + 'qr')
+    if (disposed || sessions.value[role] !== session) return
+    if (['error', 'auth_failure', 'logged_out', 'disconnected'].includes(result.state)) {
+      fail(session, 'Não foi possível gerar o QR code. Tente conectar novamente.')
+      return
+    }
+    if (result.qrImageDataUrl && result.qrImageDataUrl !== session.image) {
+      session.image = result.qrImageDataUrl
+      session.loaded = false
+      session.loading = true
+    }
+    // Empty QR responses mean the server is still preparing it. Keep loading
+    // until the image itself has loaded, rather than until this request ends.
+  } catch (e) {
+    if (!disposed && sessions.value[role] === session) fail(session, e.message)
+  }
+}
 async function refresh() {
   if (polling || disposed) return
   polling = true
@@ -26,42 +74,37 @@ async function refresh() {
     status.value = current
     mode.value = current.mode || 'own'
     emit('status', current)
-    loading.value = true
-    const [own, assistant] = await Promise.all([
-      current.connected ? null : api('/me/whatsapp/qr'),
-      current.mode === 'dedicated' && !current.ayla?.connected ? api('/me/whatsapp/ayla/qr') : null,
+    error.value = ''
+    await Promise.all([
+      refreshQr('user', current),
+      current.mode === 'dedicated' ? refreshQr('ayla', current.ayla) : null,
     ])
-    if (!disposed && currentRevision === revision) {
-      qr.value = own
-      aylaQr.value = assistant
-      error.value = ''
-    }
   } catch (e) {
-    if (!disposed) error.value = e.message
+    if (!disposed && currentRevision === revision) error.value = e.message
   } finally {
     polling = false
-    loading.value = false
   }
 }
 async function selectMode(value) {
-  if (busy.value || !status.value || mode.value === value) return
+  if (anyAction.value || !status.value || mode.value === value) return
   busy.value = true
   ++revision
+  sessions.value = { user: emptySession(), ayla: emptySession() }
   error.value = ''
   try {
     const saved = await api('/me/whatsapp/configuration', { method: 'PUT', body: { mode: value } })
+    if (disposed) return
     status.value = saved
     mode.value = saved.mode
-    qr.value = aylaQr.value = null
     emit('status', saved)
   } catch (e) {
-    error.value = e.message
+    if (!disposed) error.value = e.message
   } finally {
     busy.value = false
   }
-  await refresh()
 }
 async function action(name, role = 'user') {
+  if (busy.value || sessions.value[role].busy) return
   if (
     name === 'logout' &&
     !(await confirmAction(
@@ -70,22 +113,43 @@ async function action(name, role = 'user') {
     ))
   )
     return
-  busy.value = true
-  error.value = ''
+  ++revision
+  const generating = name === 'connect' || name === 'restart'
+  sessions.value[role] = {
+    ...emptySession(),
+    requested: generating,
+    loading: generating,
+    busy: true,
+  }
+  const session = sessions.value[role]
   try {
     await api('/me/whatsapp/' + (role === 'ayla' ? 'ayla/' : '') + name, { method: 'POST' })
   } catch (e) {
-    error.value = e.message
+    if (!disposed && sessions.value[role] === session) fail(session, e.message)
   } finally {
-    busy.value = false
+    session.busy = false
   }
-  await refresh()
+  if (!disposed && sessions.value[role] === session) await refresh()
+}
+function imageLoaded(role, event) {
+  if (!event.target.isConnected || event.target.getAttribute('src') !== sessions.value[role].image)
+    return
+  sessions.value[role].loaded = true
+  sessions.value[role].loading = false
+}
+function imageFailed(role, event) {
+  if (event.target.isConnected && event.target.getAttribute('src') === sessions.value[role].image)
+    fail(sessions.value[role], 'Não foi possível exibir o QR code. Tente conectar novamente.')
 }
 onMounted(() => {
   refresh()
+  timer = setInterval(() => {
+    if (!busy.value) refresh()
+  }, 2000)
 })
 onBeforeUnmount(() => {
   disposed = true
+  clearInterval(timer)
 })
 defineExpose({ refresh })
 </script>
@@ -95,7 +159,7 @@ defineExpose({ refresh })
       Converse com a Ayla pelo chat do site ou conecte-a ao seu WhatsApp para levar essa companhia
       com você. Se preferir, você pode conectar depois.
     </p>
-    <fieldset class="whatsapp-modes" :disabled="busy || !status">
+    <fieldset class="whatsapp-modes" :disabled="anyAction || !status">
       <legend>Como você quer usar o WhatsApp?</legend>
       <label class="whatsapp-mode">
         <input
@@ -142,6 +206,7 @@ defineExpose({ refresh })
       v-for="role in mode === 'dedicated' ? ['user', 'ayla'] : ['user']"
       :key="role"
       class="whatsapp-account"
+      :data-role="role"
     >
       <div>
         <h3>{{ role === 'ayla' ? 'WhatsApp exclusivo da Ayla' : 'Seu WhatsApp' }}</h3>
@@ -164,7 +229,7 @@ defineExpose({ refresh })
             v-if="!(role === 'ayla' ? status?.ayla : status)?.connected"
             type="button"
             class="button primary"
-            :disabled="busy || !status"
+            :disabled="busy || sessions[role].busy || sessions[role].loading || !status"
             @click="action('connect', role)"
           >
             <Icon name="phone" :size="17" />{{
@@ -175,7 +240,7 @@ defineExpose({ refresh })
             v-else
             type="button"
             class="button secondary"
-            :disabled="busy"
+            :disabled="busy || sessions[role].busy"
             @click="action('disconnect', role)"
           >
             Pausar conexão
@@ -184,7 +249,7 @@ defineExpose({ refresh })
             v-if="(role === 'ayla' ? status?.ayla : status)?.sessionSaved"
             type="button"
             class="button secondary"
-            :disabled="busy"
+            :disabled="busy || sessions[role].busy || sessions[role].loading"
             @click="action('restart', role)"
           >
             Reconectar
@@ -193,25 +258,44 @@ defineExpose({ refresh })
             v-if="(role === 'ayla' ? status?.ayla : status)?.sessionSaved"
             type="button"
             class="button subtle danger-text"
-            :disabled="busy"
+            :disabled="busy || sessions[role].busy"
             @click="action('logout', role)"
           >
             Sair e apagar sessão
           </button>
         </div>
+        <p v-if="sessions[role].error" class="banner error" role="alert">
+          {{ sessions[role].error }}
+        </p>
       </div>
       <div v-if="!(role === 'ayla' ? status?.ayla : status)?.connected" class="qr-area">
         <img
-          v-if="!busy && !loading && (role === 'ayla' ? aylaQr : qr)?.qrImageDataUrl"
-          :src="(role === 'ayla' ? aylaQr : qr).qrImageDataUrl"
+          v-if="sessions[role].image"
+          v-show="sessions[role].loaded"
+          :key="sessions[role].image"
+          :src="sessions[role].image"
           :alt="role === 'ayla' ? 'QR code do número da Ayla' : 'QR code do seu WhatsApp'"
+          @load="imageLoaded(role, $event)"
+          @error="imageFailed(role, $event)"
         />
-        <div v-else class="qr-placeholder" role="status" :aria-busy="busy || loading">
-          <span v-if="busy || loading" class="qr-loading">
+        <div
+          v-if="!sessions[role].loaded"
+          class="qr-placeholder"
+          role="status"
+          :aria-busy="sessions[role].loading"
+          aria-live="polite"
+        >
+          <span v-if="sessions[role].loading" class="qr-loading">
             <span class="qr-spinner" aria-hidden="true"></span>
-            <span>{{ loading ? 'Carregando QR code…' : 'Preparando QR code…' }}</span>
+            <span>Carregando QR code…</span>
           </span>
-          <p v-else class="muted">Conecte para gerar o QR code</p>
+          <p v-else class="muted">
+            {{
+              sessions[role].error
+                ? 'Clique em conectar para tentar novamente'
+                : 'Conecte para gerar o QR code'
+            }}
+          </p>
         </div>
       </div>
     </section>
