@@ -116,10 +116,7 @@ jobs:
   deploy:
     name: Deploy to Oracle Cloud
     needs: images
-
-    # Deploy automatico apenas na branch main.
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: env
@@ -242,10 +239,17 @@ jobs:
             -f compose.oracle-free.yaml
           )
 
+          compose() {
+            docker compose "${COMPOSE_FILES[@]}" "$@"
+          }
+
           echo "Validating Docker Compose..."
-          docker compose "${COMPOSE_FILES[@]}" config --quiet
+          compose config --quiet
 
           echo "Checking application image references..."
+
+          CONFIG_JSON="$(compose config --format json)"
+
           for spec in \
             "api:cangemi/ayla-api:$TAG" \
             "frontend:cangemi/ayla-frontend:$TAG" \
@@ -255,9 +259,9 @@ jobs:
             expected="${spec#*:}"
 
             actual="$(
-              docker compose "${COMPOSE_FILES[@]}" \
-                config --format json |
-                python3 -c "import json,sys; print(json.load(sys.stdin)['services']['$service'].get('image',''))"
+              printf '%s' "$CONFIG_JSON" |
+                python3 -c \
+                  "import json,sys; print(json.load(sys.stdin)['services']['$service'].get('image',''))"
             )"
 
             if [[ "$actual" != "$expected" ]]; then
@@ -274,20 +278,173 @@ jobs:
           docker pull "cangemi/ayla-whatsapp:$TAG"
 
           echo "Pulling infrastructure images..."
-          docker compose "${COMPOSE_FILES[@]}" pull --ignore-buildable
+          compose pull --ignore-buildable
 
-          echo "Starting services..."
-          docker compose "${COMPOSE_FILES[@]}" up -d --no-build
+          # PHASE 1: INFRASTRUCTURE
 
-          echo "Waiting for service readiness..."
-          docker compose "${COMPOSE_FILES[@]}" up \
+          echo "Starting PostgreSQL, Redis and RabbitMQ..."
+
+          compose up \
+            -d \
+            --no-build \
+            --no-deps \
+            postgres redis rabbitmq
+
+          echo "Waiting for PostgreSQL readiness..."
+
+          POSTGRES_READY=false
+
+          for i in $(seq 1 60); do
+            if docker exec ayla-postgres \
+              pg_isready -U ayla -d ayla >/dev/null 2>&1; then
+              POSTGRES_READY=true
+              break
+            fi
+
+            sleep 5
+          done
+
+          if [[ "$POSTGRES_READY" != "true" ]]; then
+            echo "ERROR: PostgreSQL readiness timeout."
+            compose logs --tail 100 postgres
+            exit 1
+          fi
+
+          echo "PostgreSQL ready."
+
+          # PHASE 2: JAVA API + FLYWAY
+
+          echo "Updating Java API..."
+
+          compose up \
+            -d \
+            --no-build \
+            --no-deps \
+            api
+
+          echo "Preparing HTTP readiness probe image..."
+          docker pull curlimages/curl@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93
+
+          echo "Waiting for Java API readiness..."
+
+          API_READY=false
+
+          for i in $(seq 1 120); do
+            mapfile -t API_CONTAINERS < <(
+              compose ps -q api
+            )
+
+            if [[ "${#API_CONTAINERS[@]}" -eq 2 ]]; then
+              READY_COUNT=0
+
+              for container in "${API_CONTAINERS[@]}"; do
+                RUNNING="$(
+                  docker inspect \
+                    --format '{{.State.Running}}' \
+                    "$container"
+                )"
+
+                if [[ "$RUNNING" != "true" ]]; then
+                  continue
+                fi
+
+                HEALTH="$(
+                  docker inspect \
+                    --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \
+                    "$container"
+                )"
+
+                if [[ "$HEALTH" == "healthy" ]]; then
+                  READY_COUNT=$((READY_COUNT + 1))
+                  continue
+                fi
+
+                if [[ "$HEALTH" == "none" ]]; then
+                  if docker run \
+                    --rm \
+                    --network "container:$container" \
+                    curlimages/curl@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93 \
+                    --fail \
+                    --silent \
+                    --show-error \
+                    --max-time 10 \
+                    --output /dev/null \
+                    http://127.0.0.1:9091/actuator/health/readiness \
+                    >/dev/null 2>&1; then
+
+                    READY_COUNT=$((READY_COUNT + 1))
+                  fi
+                fi
+              done
+
+              if [[ "$READY_COUNT" -eq 2 ]]; then
+                API_READY=true
+                break
+              fi
+            fi
+
+            echo "Waiting for API replicas ($i/120)..."
+            sleep 3
+          done
+
+          if [[ "$API_READY" != "true" ]]; then
+            echo "ERROR: Java API readiness timeout."
+            compose logs --tail 150 api
+            exit 1
+          fi
+
+          echo "Java API ready. Flyway initialization completed."
+
+          # PHASE 3: WHATSAPP
+
+          echo "Updating WhatsApp..."
+
+          compose up \
+            -d \
+            --no-build \
+            --no-deps \
+            whatsapp
+
+          echo "Waiting for WhatsApp healthcheck..."
+
+          WHATSAPP_READY=false
+
+          for i in $(seq 1 90); do
+            STATUS="$(
+              docker inspect \
+                --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \
+                ayla-whatsapp
+            )"
+
+            if [[ "$STATUS" == "healthy" ]]; then
+              WHATSAPP_READY=true
+              break
+            fi
+
+            echo "WhatsApp status: $STATUS ($i/90)"
+            sleep 3
+          done
+
+          if [[ "$WHATSAPP_READY" != "true" ]]; then
+            echo "ERROR: WhatsApp healthcheck timeout."
+            compose logs --tail 150 whatsapp
+            exit 1
+          fi
+
+          echo "WhatsApp healthy."
+
+          # PHASE 4: REMAINING SERVICES
+
+          echo "Updating remaining services..."
+
+          compose up \
             -d \
             --no-build \
             --wait \
             --wait-timeout 300
 
-          echo "Container status:"
-          docker compose "${COMPOSE_FILES[@]}" ps
+          echo "Final container status:"
+          compose ps
 
           echo "Deployment completed successfully for $SHA"
           REMOTE
