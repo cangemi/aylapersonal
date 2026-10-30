@@ -21,16 +21,17 @@ import tools.jackson.databind.json.JsonMapper;
 @Service
 public class GoogleCalendarSync {
     private final JdbcTemplate jdbc;private final CalendarService calendar;private final ayla.cluster.ClusterOperations cluster;
-    private final TransactionTemplate tx;private final String clientId,clientSecret,redirect;private final byte[] encryptionKey;
+    private final TransactionTemplate tx;private final String clientId,clientSecret,redirect,frontendUrl;private final byte[] encryptionKey;
     private final JsonMapper json=JsonMapper.builder().build();private final SecureRandom random=new SecureRandom();
     private final HttpClient http=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
     private static final String API="https://www.googleapis.com/calendar/v3";
     private static class GoogleFailure extends RuntimeException {final int status;GoogleFailure(int status){super("Google Calendar unavailable");this.status=status;}}
     public GoogleCalendarSync(JdbcTemplate jdbc,CalendarService calendar,ayla.cluster.ClusterOperations cluster,PlatformTransactionManager manager,
             @Value("${ayla.calendar.google.client-id:}") String clientId,@Value("${ayla.calendar.google.client-secret:}") String clientSecret,
-            @Value("${ayla.calendar.google.redirect-uri:http://localhost:3000/api/v1/calendar/google/callback}") String redirect,
-            @Value("${ayla.calendar.encryption-key:}") String encryptionKey){
-        this.jdbc=jdbc;this.calendar=calendar;this.cluster=cluster;tx=new TransactionTemplate(manager);this.clientId=clientId;this.clientSecret=clientSecret;this.redirect=redirect;
+            @Value("${ayla.calendar.google.redirect-uri:http://localhost:8080/api/v1/calendar/google/callback}") String redirect,
+            @Value("${ayla.calendar.encryption-key:}") String encryptionKey,
+            @Value("${ayla.frontend.url:http://localhost:3000}") String frontendUrl){
+        this.jdbc=jdbc;this.calendar=calendar;this.cluster=cluster;tx=new TransactionTemplate(manager);this.clientId=clientId;this.clientSecret=clientSecret;this.redirect=redirect;this.frontendUrl=frontendUrl;
         byte[] decoded;try{decoded=Base64.getDecoder().decode(encryptionKey);}catch(Exception e){decoded=new byte[0];}this.encryptionKey=decoded;
     }
     boolean configured(){return !clientId.isBlank()&&!clientSecret.isBlank()&&encryptionKey.length==32;}
@@ -66,7 +67,10 @@ public class GoogleCalendarSync {
                 """,user,seal(user,refresh),calendarId,label.substring(0,Math.min(300,label.length())),UUID.randomUUID());return true;
         }));
     }
-    public String returnUrl(boolean success){var uri=URI.create(redirect);return uri.getScheme()+"://"+uri.getRawAuthority()+"/agenda?google="+(success?"connected":"error");}
+    public String returnUrl(boolean success) {
+        return frontendUrl.replaceAll("/+$", "") + "/agenda?google="
+            + (success ? "connected" : "error");
+    }
     public void disconnect(String user){cluster.exclusive("google-calendar:"+user,()->{jdbc.update("update calendar_google_connections set refresh_secret='',sync_status='DISCONNECTED' where user_id=?",user);jdbc.update("delete from calendar_oauth_states where user_id=?",user);return true;});}
     public void requestSync(String user){if(jdbc.update("update calendar_google_connections set next_sync_at=now(),sync_status='PENDING' where user_id=? and refresh_secret<>''",user)==0)throw error(409,"Conecte o Google primeiro. Sua agenda própria continua disponível.");}
     public void scheduled(){
