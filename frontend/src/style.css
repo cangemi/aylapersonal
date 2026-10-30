@@ -3795,19 +3795,9 @@ body {
 }
 .login-story {
   padding: 30px 52px 26px;
-  background: #100d1b;
-  isolation: isolate;
   min-height: 100dvh;
-}
-.login-story::before {
-  content: '';
-  position: absolute;
-  z-index: -2;
-  inset: 0;
-  background-image: var(--login-background);
-  background-size: cover;
-  background-position: 65% bottom;
-  background-repeat: no-repeat;
+  isolation: isolate;
+  background: #100d1b var(--login-background) center bottom / cover no-repeat;
 }
 .login-story::after {
   content: '';
@@ -4247,9 +4237,6 @@ body {
   .login-story h1 {
     font-size: 43px;
     letter-spacing: -1.6px;
-  }
-  .login-story::before {
-    background-position: 63% bottom;
   }
   .login-story .card-day {
     left: 7%;
