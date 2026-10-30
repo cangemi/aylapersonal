@@ -10,7 +10,7 @@ services:
     image: prom/prometheus:v3.5.0
     restart: unless-stopped
     logging: *telemetry-logging
-    command: [--config.file=/etc/prometheus/prometheus.yml, --storage.tsdb.path=/prometheus, --storage.tsdb.retention.time=7d, --storage.tsdb.retention.size=4GB]
+    command: [--config.file=/etc/prometheus/prometheus.yml, --storage.tsdb.path=/prometheus, --storage.tsdb.retention.time=63d, --storage.tsdb.retention.size=4GB]
     volumes:
       - ./docker/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./docker/observability/alerts.yml:/etc/prometheus/alerts.yml:ro

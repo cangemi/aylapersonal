@@ -130,3 +130,15 @@ O build completo da imagem Docker Java também passou, e as doze regras de alert
 Essas medições são do ambiente local, com leituras de saúde e sem IA ou dados pessoais; não são um benchmark da Oracle ARM nem uma estimativa da capacidade do provedor. As imagens foram verificadas quanto à disponibilidade ARM64. A ativação e a medição na VPS continuam necessárias.
 
 Referências: [Spring Boot Metrics](https://docs.spring.io/spring-boot/reference/actuator/metrics.html), [Spring Boot Tracing](https://docs.spring.io/spring-boot/reference/actuator/tracing.html), [HAProxy Prometheus](https://www.haproxy.com/documentation/haproxy-configuration-tutorials/alerts-and-monitoring/prometheus/), [HAProxy e reconexões](https://www.haproxy.com/documentation/haproxy-configuration-tutorials/reliability/retries/), [Grafana Alloy e Docker](https://grafana.com/docs/alloy/latest/monitor/monitor-docker-containers/), [cAdvisor](https://github.com/google/cadvisor/blob/master/docs/running.md).
+
+## Oracle Free Tier: uso e planejamento
+
+Dashboard /d/ayla-oracle-free (também há link no painel Ayla — aplicação e VPS). Exibe CPU/RAM do host, histórico, médias do período, orçamento diário e planejamento mensal. Os atalhos Hoje e Este mês selecionam os períodos no fuso America/Sao_Paulo. Em Docker Desktop, o host medido é a VM Linux do Docker; o painel mostra LOCAL/simulação para não apresentar esse uso como medição da VPS Oracle.
+
+CPU/RAM em porcentagem são medidas de desempenho, não franquia consumida. A referência A1 Always Free usada é 2 OCPUs e 12 GB, com 1.500 OCPU-h e 9.000 GB-h mensais compartilhados entre VMs da conta, conforme https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm . Não existe franquia diária oficial; a referência diária divide a mensal pelos dias do mês.
+
+As métricas ayla_oracle_* são PLANEJAMENTO: assumem uma única VM continuamente ligada desde o início do dia/mês com a alocação configurada. Não consultam OCI Usage/Cost Analysis, não reconciliam paradas, redimensionamentos anteriores nem outras VMs. Não são fatura, saldo oficial ou garantia de gratuidade. Uma VM 2/12 durante 31 dias projeta 1.488 OCPU-h/8.928 GB-h. As projeções usam calendário real e fuso configurado, inclusive meses de 28/29/30/31 dias.
+
+No overlay Oracle, AYLA_ORACLE_METRICS_ENABLED=true habilita a referência. AYLA_ORACLE_OCPUS, AYLA_ORACLE_MEMORY_GB, AYLA_ORACLE_CPU_MONTHLY_HOURS e AYLA_ORACLE_MEMORY_MONTHLY_HOURS ajustam os valores; AYLA_ORACLE_TIME_ZONE escolhe o fuso. No profile observability-local, a referência é habilitada explicitamente como simulação. As métricas estão somente na porta privada de management e são coletadas pelo Prometheus; não há novo endpoint público.
+
+Prometheus retém até 63 dias ou 4 GB, o que limitar primeiro. Não recupera histórico anterior à coleta nem inventa uso em lacunas. Alertas existentes cobrem CPU/RAM altos; alertas novos avisam se a projeção configurada da VPS superar a referência mensal. Não bloqueiam automaticamente recursos nem substituem o controle de cotas da Oracle.

@@ -7,7 +7,7 @@
   ],
   "timezone": "browser",
   "schemaVersion": 40,
-  "version": 2,
+  "version": 3,
   "refresh": "30s",
   "time": {
     "from": "now-1h",
@@ -1541,7 +1541,7 @@
       "gridPos": {
         "h": 8,
         "x": 0,
-        "y": 131.0,
+        "y": 131,
         "w": 12
       },
       "targets": [
@@ -1558,7 +1558,7 @@
         }
       },
       "type": "timeseries",
-      "id": 37.0,
+      "id": 37,
       "datasource": {
         "uid": "prometheus",
         "type": "prometheus"
@@ -1575,7 +1575,7 @@
       "gridPos": {
         "h": 8,
         "x": 12,
-        "y": 131.0,
+        "y": 131,
         "w": 12
       },
       "targets": [
@@ -1592,7 +1592,7 @@
         }
       },
       "type": "timeseries",
-      "id": 38.0,
+      "id": 38,
       "datasource": {
         "uid": "prometheus",
         "type": "prometheus"
@@ -1609,7 +1609,7 @@
       "gridPos": {
         "h": 8,
         "x": 0,
-        "y": 139.0,
+        "y": 139,
         "w": 12
       },
       "targets": [
@@ -1626,7 +1626,7 @@
         }
       },
       "type": "timeseries",
-      "id": 39.0,
+      "id": 39,
       "datasource": {
         "uid": "prometheus",
         "type": "prometheus"
@@ -1643,7 +1643,7 @@
       "gridPos": {
         "h": 8,
         "x": 12,
-        "y": 139.0,
+        "y": 139,
         "w": 12
       },
       "targets": [
@@ -1660,7 +1660,7 @@
         }
       },
       "type": "timeseries",
-      "id": 40.0,
+      "id": 40,
       "datasource": {
         "uid": "prometheus",
         "type": "prometheus"
@@ -1679,6 +1679,12 @@
       "title": "Métricas, logs e traces no Explore",
       "type": "link",
       "url": "/explore",
+      "targetBlank": false
+    },
+    {
+      "title": "Oracle Free Tier — CPU, RAM e orçamento",
+      "type": "link",
+      "url": "/d/ayla-oracle-free",
       "targetBlank": false
     }
   ]
