@@ -4,6 +4,7 @@ import { api, query } from '../lib/api'
 import { timestamp, localDateTime } from '../lib/format'
 import { toast } from '../lib/ui'
 import Icon from '../components/Icon.vue'
+import ExternalLink from '../components/ExternalLink.vue'
 import Modal from '../components/Modal.vue'
 import AiUsagePanel from '../components/AiUsagePanel.vue'
 
@@ -124,15 +125,9 @@ onBeforeUnmount(() => {
     <span class="pill lavender"><Icon name="shield" :size="14" />Superadministrador</span>
   </div>
   <div class="monitor-toolbar">
-    <a
-      v-if="grafanaUrl"
-      class="button secondary"
-      :href="grafanaUrl"
-      target="_blank"
-      rel="noopener noreferrer"
-    >
+    <ExternalLink v-if="grafanaUrl" class="button secondary" :href="grafanaUrl">
       <Icon name="monitor" :size="16" />Aplicação e VPS no Grafana
-    </a>
+    </ExternalLink>
     <label class="check-label"
       ><input v-model="live" type="checkbox" />Atualizar a cada 15 segundos</label
     >

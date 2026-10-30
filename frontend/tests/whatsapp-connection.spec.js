@@ -72,13 +72,13 @@ test('onboarding keeps the WhatsApp step optional, including unavailable and par
   await page.getByRole('radio', { name: 'Usar um número exclusivo' }).check()
   await expect(page.getByRole('heading', { name: 'WhatsApp exclusivo da Ayla' })).toBeVisible()
   await page.getByRole('button', { name: 'Pular por enquanto' }).click()
-  await expect(page.getByRole('heading', { name: 'Prepare o Hermes' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Conecte sua conta ao Hermes' })).toBeVisible()
   await expect(page.locator('.onboarding-steps li.skipped')).toContainText('WhatsApp')
   await page.getByRole('button', { name: 'Voltar', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Leve a Ayla para o WhatsApp' })).toBeVisible()
   await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '3')
   await page.getByRole('button', { name: 'Pular por enquanto' }).click()
-  await expect(page.getByRole('heading', { name: 'Prepare o Hermes' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Conecte sua conta ao Hermes' })).toBeVisible()
   expect(
     requests.filter((request) => /whatsapp\/(?:ayla\/)?connect$/.test(request.path)),
   ).toHaveLength(0)
@@ -91,7 +91,7 @@ test('onboarding keeps the WhatsApp step optional, including unavailable and par
   await page.route('**/api/v1/me/hermes/status', (route) =>
     route.fulfill({ json: { provisioned: true, ready: true, message: 'Hermes pronto.' } }),
   )
-  await page.getByRole('button', { name: 'Verificar novamente' }).click()
+  await page.getByRole('button', { name: 'Verificar conexão' }).click()
   await page.getByRole('button', { name: 'Concluir', exact: true }).click()
   await expect(page).toHaveURL(/\/$/)
   expect(requests.some((request) => request.path === '/auth/onboarding/complete')).toBeTruthy()
@@ -125,7 +125,7 @@ test('onboarding can skip WhatsApp even when the service is unavailable', async 
   await page.goto('/configuracao-inicial')
   await expect(page.getByRole('alert')).toContainText('WhatsApp indisponível')
   await page.getByRole('button', { name: 'Pular por enquanto' }).click()
-  await expect(page.getByRole('heading', { name: 'Prepare o Hermes' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Conecte sua conta ao Hermes' })).toBeVisible()
 })
 
 for (const path of ['/configuracao-inicial', '/whatsapp']) {
@@ -212,7 +212,7 @@ test('disconnected chat button explains the connection and provides cancel and c
   await expect(dialog).not.toBeVisible()
   await page.getByRole('button', { name: 'Começar uma conversa com Ayla no WhatsApp' }).click()
   await dialog.getByRole('link', { name: 'Configurar WhatsApp' }).click()
-  await expect(page).toHaveURL(/\/whatsapp$/)
+  await expect(page).toHaveURL(/\/conexoes\?aba=whatsapp$/)
   expect(requests.filter((request) => request.path.endsWith('/personal-chat'))).toHaveLength(0)
 })
 

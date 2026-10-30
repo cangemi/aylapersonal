@@ -7,6 +7,7 @@ import MaskedInput from '../components/MaskedInput.vue'
 import Modal from '../components/Modal.vue'
 import EmptyState from '../components/EmptyState.vue'
 import WhatsappConnection from '../components/WhatsappConnection.vue'
+defineProps({ embedded: Boolean })
 const status = ref(null),
   connection = ref(null),
   chats = ref([]),
@@ -112,7 +113,7 @@ async function remove(chat) {
 }
 </script>
 <template>
-  <div class="page-heading">
+  <div v-if="!embedded" class="page-heading">
     <div>
       <span class="eyebrow">SEMPRE POR PERTO</span>
       <h1>Uma conversa de distância.</h1>
@@ -148,7 +149,12 @@ async function remove(chat) {
       Essa será sua conversa principal. A anterior passa a atender quando você chamar Ayla0101.
     </p>
     <div class="button-row">
-      <button class="button primary" :disabled="busy || !ready" @click="createPersonalChat">
+      <button
+        class="button primary"
+        :disabled="busy || !ready"
+        :title="dedicated ? 'Abre o WhatsApp fora da Ayla' : undefined"
+        @click="createPersonalChat"
+      >
         <Icon name="plus" :size="17" />{{
           busy
             ? 'Aguarde…'
@@ -156,6 +162,8 @@ async function remove(chat) {
               ? 'Continuar conversa com Ayla'
               : 'Começar conversa com Ayla'
         }}
+        <Icon v-if="dedicated" name="external" :size="17" />
+        <span v-if="dedicated" class="sr-only"> (abre o WhatsApp fora da Ayla)</span>
       </button>
     </div>
     <p v-if="!dedicated && status?.personalChatId" class="footnote">

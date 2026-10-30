@@ -62,7 +62,7 @@ O build gera `dist/`. Em outra hospedagem, configure fallback das rotas Vue para
 | Despensa | CRUD, validade, mínimo, busca, filtro de estoque baixo, consumo e reposição |
 | Compras | CRUD de pendentes, histórico, compra com reposição opcional, sugestões a partir da despensa |
 | Memórias | Consulta, busca e exclusão das lembranças persistidas |
-| WhatsApp | Status, QR atualizado a cada seis segundos, conectar/pausar/reconectar/sair, gestão das conversas |
+| Conexões | Abas WhatsApp e Hermes; QR por número solicitado, autorização Nous guiada, reconexão e acesso ao portal de planos |
 | Configurações | Senha, recuperação, encerrar sessões; proprietário também ajusta voz/prévia, modelo gratuito, instruções e cria usuários |
 
 Valores financeiros são digitados em reais com vírgula e convertidos usando inteiros/BigInt para `amountCents`, sem multiplicação em ponto flutuante. A interface envia a versão atual nas edições/exclusões e chaves de idempotência nos endpoints compatíveis. Uma resposta 502 não dispara repetição automática de uma escrita. Um 401 pode renovar o token e repetir a requisição que foi rejeitada antes de chegar ao controller.

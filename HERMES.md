@@ -193,6 +193,12 @@ O plugin `ayla-research` injeta orientação para ignorar pesquisas e falhas ant
 
 Os contextos de pesquisa persistidos no histórico servem como registro de turnos anteriores; não comprovam uma busca ou falha no turno atual. A resposta deve se limitar ao que o usuário acabou de dizer ou perguntar. A ponte financeira verifica o acesso real da sessão, sem usar mensagens antigas da assistente como diagnóstico.
 
+## Conectar pelo painel da Ayla
+
+O onboarding e **Conexões → Hermes** compartilham a mesma orientação: inicie a conexão na Ayla, abra o link da Nous, entre na sua própria conta e autorize o Hermes. O código mostrado serve para conferir a solicitação com a página aberta; o link já usa `verification_uri_complete`, portanto não é necessário copiar ou colar esse código. Depois, volte à Ayla e aguarde a confirmação automática. O painel informa a validade do link e permite reiniciar a autorização em caso de expiração, recusa ou erro.
+
+A página **Conexões**, em `/conexoes?aba=hermes`, mantém acesso ao status, à nova autorização da conta, às preferências de inteligência e personalidade e ao [portal oficial de planos e assinatura da Nous](https://portal.nousresearch.com/billing). A contratação acontece na Nous, com a mesma conta usada na Ayla; não muda automaticamente o modelo selecionado. `/whatsapp` continua funcionando e redireciona à aba WhatsApp de Conexões. Trocar de aba preserva os QR codes solicitados e uma autorização Nous em andamento.
+
 ## Docker e persistência
 
 O Compose usa a imagem oficial Hermes 0.22.4, fixada pelo digest verificado, com

@@ -587,9 +587,14 @@ onBeforeUnmount(() => {
           v-if="!google.connected || google.syncStatus === 'RECONNECT'"
           class="button secondary"
           :disabled="!google.configured || connecting"
+          title="Abre o site do Google para autorizar a conexão"
           @click="connect"
         >
-          <Icon name="calendar" :size="17" />Conectar Google</button
+          <Icon name="calendar" :size="17" />Conectar Google<Icon name="external" :size="17" /><span
+            class="sr-only"
+          >
+            (abre a autorização no site do Google)</span
+          ></button
         ><template v-if="google.connected"
           ><button class="button secondary" @click="sync">
             <Icon name="refresh" :size="16" />Atualizar</button

@@ -147,8 +147,8 @@ async function logout() {
           active-class="active"
           ><Icon name="monitor" />Monitoramento</RouterLink
         >
-        <RouterLink to="/whatsapp" class="nav-link" active-class="active"
-          ><Icon name="phone" />WhatsApp</RouterLink
+        <RouterLink to="/conexoes" class="nav-link" active-class="active"
+          ><Icon name="globe" />Conexões</RouterLink
         ><RouterLink to="/configuracoes" class="nav-link" active-class="active"
           ><Icon name="settings" />Configurações</RouterLink
         >

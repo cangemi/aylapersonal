@@ -3,14 +3,15 @@ import PasswordInput from '../components/PasswordInput.vue'
 import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { api, auth, setSession, query } from '../lib/api'
 import { timestamp } from '../lib/format'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { toast, confirmAction } from '../lib/ui'
 import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
 const owner = auth.session?.user?.role === 'OWNER',
   displayName = ref(auth.session?.user?.displayName || ''),
   router = useRouter(),
-  tab = ref('account'),
+  route = useRoute(),
+  tab = ref(route.query.aba === 'agent' ? 'agent' : 'account'),
   password = ref({ currentPassword: '', newPassword: '', confirm: '' }),
   recovery = ref(''),
   voice = ref(null),
@@ -299,7 +300,7 @@ async function createUser() {
     accountsApplied.value = ''
     accountsPage.value = 0
     await loadUsers()
-  }, 'Usuário criado. Para usar o chat, configure um perfil Hermes separado no backend.')
+  }, 'Usuário criado. No primeiro acesso, ele poderá conectar a própria conta Nous.')
 }
 async function saveAgent() {
   await api('/me/agent/configuration', {
@@ -551,8 +552,8 @@ onMounted(load)
             required
         /></label>
         <div class="banner info">
-          Cada usuário tem dados isolados. O chat exige que um perfil Hermes próprio seja
-          configurado no backend.
+          Cada usuário tem dados isolados e conecta a própria conta Nous no primeiro acesso. Depois,
+          pode gerenciar a conexão em Conexões → Hermes.
         </div>
         <button class="button primary" :disabled="busy">Criar usuário</button>
       </form>

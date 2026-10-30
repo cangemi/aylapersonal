@@ -83,7 +83,7 @@ onMounted(load)
       </button>
       <RouterLink
         v-if="!loading && !connected"
-        to="/whatsapp"
+        :to="{ path: '/conexoes', query: { aba: 'whatsapp' } }"
         class="button primary"
         @click="emit('close')"
         >Configurar WhatsApp</RouterLink
@@ -92,6 +92,7 @@ onMounted(load)
         v-else
         class="button primary"
         :disabled="busy || loading || !connected"
+        :title="dedicated ? 'Abre o WhatsApp fora da Ayla' : undefined"
         @click="create"
       >
         <Icon name="phone" :size="17" />{{
@@ -101,6 +102,8 @@ onMounted(load)
               ? 'Continuar conversa com Ayla'
               : 'Começar conversa com Ayla'
         }}
+        <Icon v-if="dedicated" name="external" :size="17" />
+        <span v-if="dedicated" class="sr-only"> (abre o WhatsApp fora da Ayla)</span>
       </button>
     </div>
   </Modal>

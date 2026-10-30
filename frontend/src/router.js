@@ -65,10 +65,18 @@ const routes = [
   },
   {
     path: '/whatsapp',
-    component: () => import('./pages/Whatsapp.vue'),
+    redirect: (to) => ({
+      path: '/conexoes',
+      query: { ...to.query, aba: 'whatsapp' },
+      hash: to.hash,
+    }),
+  },
+  {
+    path: '/conexoes',
+    component: () => import('./pages/Connections.vue'),
     meta: {
-      title: 'WhatsApp',
-      subtitle: 'A Ayla pertinho de você, em qualquer lugar.',
+      title: 'Conexões',
+      subtitle: 'WhatsApp e Hermes, conectados ao seu espaço.',
     },
   },
   {

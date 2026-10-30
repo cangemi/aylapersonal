@@ -1,11 +1,12 @@
 <script setup>
 import PasswordInput from '../components/PasswordInput.vue'
-import { ref, computed, watch, onBeforeUnmount } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, auth, setSession } from '../lib/api'
 import Icon from '../components/Icon.vue'
 import AylaLogo from '../components/AylaLogo.vue'
 import WhatsappConnection from '../components/WhatsappConnection.vue'
+import HermesConnection from '../components/HermesConnection.vue'
 const router = useRouter(),
   user = auth.session.user,
   steps = [
@@ -29,60 +30,7 @@ const router = useRouter(),
   displayName = ref(user.displayName || ''),
   password = ref({ currentPassword: '', newPassword: '', confirm: '' }),
   wa = ref(null),
-  hermes = ref(null),
-  login = ref(null)
-let loginTimer,
-  disposed = false
-function stopPolling() {
-  clearInterval(loginTimer)
-  loginTimer = null
-}
-async function loadHermes() {
-  error.value = ''
-  try {
-    const current = await api('/me/hermes/status')
-    hermes.value = current.provisioned
-      ? current
-      : await api('/me/hermes/provision', { method: 'POST' })
-    if (hermes.value.ready) {
-      stopPolling()
-      login.value = null
-    }
-  } catch (e) {
-    if (!disposed) error.value = e.message
-  }
-}
-async function pollLogin() {
-  if (!login.value) return
-  try {
-    await api('/me/hermes/login/' + login.value.session_id)
-  } catch {
-    /* o status abaixo é a fonte da verdade */
-  }
-  await loadHermes()
-}
-const startLogin = () =>
-  run(async () => {
-    login.value = await api('/me/hermes/login', { method: 'POST' })
-    clearInterval(loginTimer)
-    loginTimer = setInterval(pollLogin, Math.max(3, login.value.poll_interval || 5) * 1000)
-  })
-watch(
-  step,
-  (value) => {
-    stopPolling()
-    error.value = ''
-    if (value === 'hermes') {
-      busy.value = true
-      loadHermes().finally(() => (busy.value = false))
-    }
-  },
-  { immediate: true },
-)
-onBeforeUnmount(() => {
-  disposed = true
-  stopPolling()
-})
+  hermes = ref(null)
 async function run(action) {
   busy.value = true
   error.value = ''
@@ -303,40 +251,15 @@ const advance = () => {
           </template>
 
           <template v-else-if="step === 'hermes'">
-            <h2>Prepare o Hermes</h2>
-            <p class="muted">
-              Criamos o seu assistente pessoal aqui mesmo, sem sair da Ayla. Ele prepara a conta no
-              Nous e conecta a Ayla a esse assistente.
-            </p>
-            <div v-if="hermes" :class="['banner', hermes.ready ? 'success' : 'info']" role="status">
-              {{ hermes.message }}
-            </div>
-            <div v-if="login" class="login-code">
-              <p></p>
-              <p>Entre no Nous e confirma o código para conectar:</p>
-              <strong class="user-code">{{ login.user_code }}</strong>
-              <a class="button" :href="login.verification_url" target="_blank" rel="noopener">
-                Abrir a Nous
-              </a>
-              <p class="muted">Aguardando a confirmação…</p>
-            </div>
-            <div class="onboarding-actions">
-              <button
-                v-if="hermes?.connected && !hermes.loggedIn"
-                class="button primary"
-                type="button"
-                :disabled="busy"
-                @click="startLogin"
-              >
-                {{ login ? 'Gerar novo código' : 'Entrar na conta Nous' }}
-              </button>
-              <button v-else class="button" type="button" :disabled="busy" @click="loadHermes">
-                Verificar novamente
-              </button>
-              <button class="button primary" :disabled="busy || !hermes?.ready" @click="advance">
-                Concluir<Icon name="arrow" :size="18" />
-              </button>
-            </div>
+            <HermesConnection onboarding @status="hermes = $event" @busy="busy = $event" />
+            <button
+              type="button"
+              class="button primary full"
+              :disabled="busy || !hermes?.ready"
+              @click="advance"
+            >
+              Concluir<Icon name="arrow" :size="18" />
+            </button>
           </template>
         </section>
       </Transition>
@@ -506,11 +429,6 @@ const advance = () => {
     transition: none;
   }
 }
-.onboarding-actions {
-  display: flex;
-  gap: 8px;
-  justify-content: space-between;
-}
 .onboarding .qr-area {
   width: 100%;
   height: auto;
@@ -525,14 +443,5 @@ const advance = () => {
   width: 240px;
   height: 240px;
   font-size: 0.9rem;
-}
-.login-code {
-  display: grid;
-  gap: 8px;
-  justify-items: start;
-}
-.user-code {
-  font-size: 1.8rem;
-  letter-spacing: 0.15em;
 }
 </style>

@@ -76,11 +76,32 @@ let historyRequest = 0
 let selectionRequest = 0
 const messages = computed(() => transcripts[active.value] || [])
 const owner = auth.session?.user?.id
-const markdown = (value) =>
-  DOMPurify.sanitize(marked.parse(value || '', { breaks: true }), {
+const markdown = (value) => {
+  const content = document.createElement('template')
+  content.innerHTML = DOMPurify.sanitize(marked.parse(value || '', { breaks: true }), {
     FORBID_TAGS: ['img', 'video', 'audio', 'iframe', 'style', 'form'],
     FORBID_ATTR: ['style'],
   })
+  for (const link of content.content.querySelectorAll('a[href]')) {
+    let url
+    try {
+      url = new URL(link.getAttribute('href'), window.location.href)
+    } catch {
+      continue
+    }
+    if (!['http:', 'https:'].includes(url.protocol) || url.origin === window.location.origin)
+      continue
+    link.target = '_blank'
+    link.rel = 'noopener noreferrer'
+    link.title = 'Site externo — abre em uma nova aba'
+    link.dataset.externalLink = 'true'
+    const description = document.createElement('span')
+    description.className = 'sr-only'
+    description.textContent = ' (site externo, abre em nova aba)'
+    link.append(description)
+  }
+  return content.innerHTML
+}
 async function bottom() {
   await nextTick()
   scroll.value?.scrollTo({
@@ -557,9 +578,10 @@ function keydown(event) {
         <button
           class="button secondary chat-whatsapp-button"
           aria-label="Começar uma conversa com Ayla no WhatsApp"
+          title="Conversa no WhatsApp, fora da Ayla"
           @click="personalChatOpen = true"
         >
-          <Icon name="phone" :size="17" /><span>Conversar com Ayla no WhatsApp</span>
+          <Icon name="external" :size="17" /><span>Conversar com Ayla no WhatsApp</span>
         </button>
       </div>
       <div v-if="error" class="banner error" role="alert">

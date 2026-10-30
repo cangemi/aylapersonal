@@ -43,9 +43,11 @@ import {
   TrendingUp,
   Activity,
   Bell,
+  ExternalLink,
 } from '@lucide/vue'
 defineProps({ name: String, size: { type: Number, default: 20 } })
 const icons = {
+  external: ExternalLink,
   bell: Bell,
   monitor: Activity,
   dashboard: LayoutDashboard,

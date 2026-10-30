@@ -368,7 +368,7 @@ test('máscaras formatam dinheiro, quantidade e telefone sem mudar os dados envi
   expect(
     requests.find((r) => r.path === '/pantry/items' && r.method === 'POST').body.quantity,
   ).toBe('0.125')
-  await page.getByRole('link', { name: 'WhatsApp', exact: true }).click()
+  await page.getByRole('link', { name: 'Conexões', exact: true }).click()
   await page.getByRole('button', { name: 'Adicionar conversa', exact: true }).click()
   const destination = page.getByLabel('Telefone ou identificador do grupo')
   await destination.fill('5511999999999')
@@ -654,7 +654,7 @@ test('grupo pessoal Ayla exige conexão e pode ser preparado pelo painel', async
     return route.fulfill({ json: { created: true, pictureUpdated: true, chat: { name: 'Ayla' } } })
   })
   await login(page)
-  await page.getByRole('link', { name: 'WhatsApp', exact: true }).click()
+  await page.getByRole('link', { name: 'Conexões', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Começar conversa com Ayla' })).toBeDisabled()
   connected = true
   await page.reload()
@@ -727,7 +727,7 @@ test('painel, CRUD em centavos, lista, chat e configurações usam os endpoints 
   await expect(page.getByRole('heading', { name: 'Arroz', exact: true })).toBeVisible()
   await page.getByRole('link', { name: 'Memórias', exact: true }).click()
   await expect(page.getByText('O nome dele é Bento.')).toBeVisible()
-  await page.getByRole('link', { name: 'WhatsApp', exact: true }).click()
+  await page.getByRole('link', { name: 'Conexões', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Conversas configuradas' })).toBeVisible()
   await page.getByRole('link', { name: 'Configurações', exact: true }).click()
   await expect(page.getByRole('status').filter({ hasText: 'Modelo em uso' })).toContainText(
