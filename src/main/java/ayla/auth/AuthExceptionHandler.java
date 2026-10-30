@@ -6,7 +6,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 
-@RestControllerAdvice(assignableTypes=AuthController.class)
+@RestControllerAdvice(assignableTypes={AuthController.class,UserPreferencesController.class})
 public class AuthExceptionHandler {
     @ExceptionHandler(AuthException.class)
     public ResponseEntity<?> auth(AuthException e){return ResponseEntity.status(e.status()).cacheControl(CacheControl.noStore()).body(Map.of("error",e.getMessage()));}

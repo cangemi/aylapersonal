@@ -4,6 +4,8 @@ Os controllers e as ferramentas da Ayla usam o mesmo serviço Java e os mesmos r
 
 ## API para o frontend
 
+A despensa oferece quatro visualizações: **Grade**, **Lista**, **Compacta** e **Tabela**. Todas mantêm edição, exclusão e ajuste de estoque. A escolha fica salva na conta autenticada, em `auth_accounts.pantry_view` (V43), e é reaplicada em novos acessos e outros navegadores. O padrão é Grade. `GET /api/v1/me/preferences` retorna `{ "pantryView": "GRID" }`; `PUT` no mesmo endereço aceita `GRID`, `LIST`, `COMPACT` ou `TABLE`. O proprietário é obtido da sessão autenticada, sem aceitar identificação de outro usuário no corpo. A API não armazena essa preferência em cache compartilhado.
+
 As rotas estão na seção **Despensa e compras** do Swagger.
 
 | Método | Endpoint | Uso |

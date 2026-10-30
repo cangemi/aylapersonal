@@ -1,0 +1,135 @@
+.pantry-view-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  padding: 18px 20px;
+  margin: 20px 0;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel);
+}
+.pantry-view-drop {
+  position: relative;
+  display: inline-block;
+}
+.pantry-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--muted);
+  cursor: pointer;
+}
+.pantry-view-toggle:hover {
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+.pantry-view-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.pantry-view-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+}
+.pantry-view-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.pantry-view-option.selected {
+  color: var(--accent);
+  background: var(--accent-bg);
+  border-color: var(--accent);
+}
+.pantry-view-option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.pantry-view-option:disabled {
+  cursor: wait;
+}
+.pantry-products {
+  display: grid;
+  gap: 16px;
+}
+.pantry-products-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.pantry-products-list,
+.pantry-products-compact {
+  grid-template-columns: minmax(0, 1fr);
+}
+.pantry-products-compact {
+  gap: 8px;
+}
+.pantry-table-wrap {
+  overflow-x: auto;
+  padding: 0;
+}
+.pantry-table {
+  min-width: 790px;
+}
+.pantry-table th,
+.pantry-table td {
+  padding: 16px 20px;
+  white-space: nowrap;
+}
+.pantry-table-name {
+  min-width: 180px;
+  max-width: 310px;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+}
+.pantry-table-name small {
+  margin-top: 5px;
+  line-height: 1.6;
+}
+.pantry-table .row-actions {
+  flex-wrap: nowrap;
+}
+@media (max-width: 1200px) {
+  .pantry-products-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 700px) {
+  .pantry-view-toolbar {
+    padding: 16px;
+  }
+  .pantry-view-toggle {
+    width: 38px;
+    height: 34px;
+  }
+  .pantry-view-option {
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 3px;
+    font-size: 11px;
+  }
+  .pantry-products-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

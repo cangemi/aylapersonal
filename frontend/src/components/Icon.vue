@@ -44,9 +44,17 @@ import {
   Activity,
   Bell,
   ExternalLink,
+  LayoutGrid,
+  List,
+  ListCollapse,
+  Table2,
 } from '@lucide/vue'
 defineProps({ name: String, size: { type: Number, default: 20 } })
 const icons = {
+  grid: LayoutGrid,
+  list: List,
+  compact: ListCollapse,
+  table: Table2,
   external: ExternalLink,
   bell: Bell,
   monitor: Activity,

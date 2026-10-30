@@ -9,8 +9,10 @@ import MaskedInput from '../components/MaskedInput.vue'
 import Modal from '../components/Modal.vue'
 import EmptyState from '../components/EmptyState.vue'
 import ShoppingListRow from '../components/ShoppingListRow.vue'
+import PantryItem from '../components/PantryItem.vue'
 import { shoppingOrder, saveShoppingOrder } from '../lib/shoppingList'
 import '../shopping.css'
+import '../pantry.css'
 const route = useRoute(),
   pantry = computed(() => route.meta.kind === 'pantry'),
   base = computed(() => (pantry.value ? '/pantry/items' : '/shopping-list/items')),
@@ -36,6 +38,60 @@ const items = ref({ items: [], total: 0 }),
   })
 const order = ref(shoppingOrder(localStorage, auth.session?.user?.id)),
   rowBusy = reactive(new Set())
+const pantryViews = [
+  { id: 'GRID', label: 'Grade', icon: 'grid' },
+  { id: 'LIST', label: 'Lista', icon: 'list' },
+  { id: 'COMPACT', label: 'Compacta', icon: 'compact' },
+  { id: 'TABLE', label: 'Tabela', icon: 'table' },
+]
+const pantryView = ref('GRID'),
+  pantryViewOpen = ref(false),
+  viewLoading = ref(false),
+  viewSaving = ref(false),
+  viewError = ref('')
+let preferenceVersion = 0
+async function loadPreferences() {
+  if (viewSaving.value) return
+  const revision = ++preferenceVersion,
+    userId = auth.session?.user?.id
+  viewLoading.value = true
+  viewError.value = ''
+  try {
+    const saved = await api('/me/preferences')
+    if (!alive || revision !== preferenceVersion || userId !== auth.session?.user?.id) return
+    pantryView.value = pantryViews.some((view) => view.id === saved.pantryView)
+      ? saved.pantryView
+      : 'GRID'
+  } catch (e) {
+    if (alive && revision === preferenceVersion)
+      viewError.value = 'Não foi possível carregar sua visualização salva. ' + e.message
+  } finally {
+    if (revision === preferenceVersion) viewLoading.value = false
+  }
+}
+async function selectPantryView(value) {
+  if (viewLoading.value || viewSaving.value || value === pantryView.value) return
+  const previous = pantryView.value,
+    userId = auth.session?.user?.id
+  pantryView.value = value
+  viewSaving.value = true
+  viewError.value = ''
+  try {
+    const saved = await api('/me/preferences', { method: 'PUT', body: { pantryView: value } })
+    if (alive && userId === auth.session?.user?.id) pantryView.value = saved.pantryView
+  } catch (e) {
+    if (alive && userId === auth.session?.user?.id) {
+      pantryView.value = previous
+      viewError.value = 'Sua escolha não foi salva. ' + e.message
+    }
+  } finally {
+    viewSaving.value = false
+  }
+}
+function closePantryView(id) {
+  selectPantryView(id)
+  pantryViewOpen.value = false
+}
 function setRowBusy(id, busy) {
   if (busy) rowBusy.add(id)
   else rowBusy.delete(id)
@@ -100,6 +156,11 @@ watch(
     all.value = false
     form.value = null
     adjust.value = null
+    if (pantry.value) loadPreferences()
+    else {
+      preferenceVersion++
+      viewLoading.value = false
+    }
     load()
   },
   { immediate: true },
@@ -294,6 +355,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   alive = false
   loadVersion++
+  preferenceVersion++
   clearInterval(refreshTimer)
 })
 </script>
@@ -368,15 +430,50 @@ onBeforeUnmount(() => {
       }}
     </button>
   </div>
-  <div class="section-heading">
-    <h2>
-      {{ pantry ? 'Seus produtos' : 'Sua lista' }} <span class="count">{{ items.total }}</span>
-    </h2>
-    <small class="muted">{{
-      pantry ? 'Acompanhe quantidades e validades' : 'Marque os itens conforme comprar'
-    }}</small>
+  <div class="section-heading pantry-section-heading">
+  <h2>
+    {{ pantry ? 'Seus produtos' : 'Sua lista' }}
+    <span class="count">{{ items.total }}</span>
+  </h2>
+
+  <small v-if="!pantry" class="muted">
+    Marque os itens conforme comprar
+  </small>
+
+  <div v-if="pantry" class="pantry-view-drop">
+    <button
+      type="button"
+      class="pantry-view-toggle"
+      :aria-expanded="pantryViewOpen"
+      :aria-label="pantryViews.find((v) => v.id === pantryView)?.label || pantryView"
+      @click="pantryViewOpen = !pantryViewOpen"
+    >
+      <Icon
+        :name="pantryViews.find((v) => v.id === pantryView)?.icon ?? 'grid'"
+        :size="17"
+      />
+    </button>
+
+    <div v-if="pantryViewOpen" class="pantry-view-menu">
+      <button
+        v-for="view in pantryViews"
+        :key="view.id"
+        type="button"
+        class="pantry-view-option"
+        :class="{ selected: pantryView === view.id }"
+        :aria-pressed="pantryView === view.id"
+        :aria-label="view.label"
+        :disabled="viewLoading || viewSaving"
+        @click="closePantryView(view.id)"
+      >
+        <Icon :name="view.icon" :size="17" />
+      </button>
+    </div>
   </div>
-  <div v-if="loading" class="loading-line"><Icon name="loading" />Carregando seus itens…</div>
+</div>
+  <div v-if="loading || (pantry && viewLoading)" class="loading-line">
+    <Icon name="loading" />Carregando seus itens…
+  </div>
   <div
     v-else-if="!pantry && items.items.length"
     class="shopping-list"
@@ -400,71 +497,82 @@ onBeforeUnmount(() => {
       />
     </template>
   </div>
-  <div v-else-if="items.items.length" class="item-grid">
-    <article
+  <div v-else-if="items.items.length && pantryView === 'TABLE'" class="pantry-table-wrap panel">
+    <table class="pantry-table">
+      <caption class="sr-only">
+        Produtos da despensa em tabela
+      </caption>
+      <thead>
+        <tr>
+          <th>Produto</th>
+          <th>Quantidade</th>
+          <th>Mínimo</th>
+          <th>Validade</th>
+          <th>Estado</th>
+          <th>Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-for="item in items.items" :key="item.id">
+          <td class="pantry-table-name">
+            <strong>{{ item.name }}</strong
+            ><small class="block muted">{{ item.category || 'Sem categoria' }}</small
+            ><small v-if="item.notes" class="block muted">{{ item.notes }}</small>
+          </td>
+          <td>
+            <strong>{{ item.quantity }}</strong> {{ item.unit }}
+          </td>
+          <td>{{ item.minimumQuantity }} {{ item.unit }}</td>
+          <td>{{ item.expiresOn ? date(item.expiresOn) : 'Não informada' }}</td>
+          <td>
+            <span :class="['tag', item.expired ? 'red' : item.lowStock ? 'amber' : 'green']">{{
+              item.expired ? 'Vencido' : item.lowStock ? 'Estoque baixo' : 'Em estoque'
+            }}</span>
+          </td>
+          <td>
+            <div class="row-actions">
+              <button
+                type="button"
+                class="button secondary"
+                :aria-label="'Ajustar estoque de ' + item.name"
+                @click="openAdjust(item)"
+              >
+                <Icon name="pantry" :size="16" />Estoque</button
+              ><button
+                type="button"
+                class="icon-button"
+                :aria-label="'Editar ' + item.name"
+                @click="edit(item)"
+              >
+                <Icon name="edit" :size="16" /></button
+              ><button
+                type="button"
+                class="icon-button"
+                :aria-label="'Excluir ' + item.name"
+                @click="remove(item)"
+              >
+                <Icon name="delete" :size="16" />
+              </button>
+            </div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div
+    v-else-if="items.items.length"
+    :class="['pantry-products', 'pantry-products-' + pantryView.toLowerCase()]"
+    aria-label="Produtos da despensa"
+  >
+    <PantryItem
       v-for="item in items.items"
       :key="item.id"
-      :class="['item-card', { purchased: item.status === 'PURCHASED' }]"
-    >
-      <div class="item-top">
-        <span :class="['stat-icon', pantry ? 'peach' : 'mint']"
-          ><Icon :name="pantry ? 'pantry' : 'shopping'" :size="21" /></span
-        ><span v-if="item.expired" class="tag red">Vencido</span
-        ><span v-else-if="item.lowStock" class="tag amber">Estoque baixo</span
-        ><span v-else-if="item.status === 'IN_CART'" class="tag green"
-          ><Icon name="check" :size="13" />No carrinho</span
-        ><span v-else-if="item.status === 'PURCHASED'" class="tag green">Comprado</span>
-        <div class="row-actions">
-          <button
-            v-if="item.status !== 'PURCHASED'"
-            class="icon-button"
-            aria-label="Editar produto"
-            @click="edit(item)"
-          >
-            <Icon name="edit" :size="16" /></button
-          ><button class="icon-button" aria-label="Excluir produto" @click="remove(item)">
-            <Icon name="delete" :size="16" />
-          </button>
-        </div>
-      </div>
-      <h3>{{ item.name }}</h3>
-      <span class="item-quantity"
-        >{{ item.quantity ?? 'A definir' }} <small>{{ item.unit || '' }}</small></span
-      >
-      <p v-if="!pantry" class="shopping-item-price">
-        <strong>{{
-          item.totalPriceCents == null ? 'Preço a informar' : money(item.totalPriceCents)
-        }}</strong
-        ><small v-if="item.unitPriceCents != null"
-          >{{ money(item.unitPriceCents) }} / {{ item.unit }}</small
-        >
-      </p>
-      <p class="muted">{{ item.category || 'Sem categoria' }}</p>
-      <p v-if="item.notes" class="item-notes">{{ item.notes }}</p>
-      <div v-if="pantry" class="item-meta">
-        <span>Mínimo: {{ item.minimumQuantity }} {{ item.unit }}</span
-        ><span v-if="item.expiresOn">Validade: {{ date(item.expiresOn) }}</span>
-      </div>
-      <div class="item-bottom">
-        <button v-if="pantry" class="button secondary full" @click="openAdjust(item)">
-          <Icon name="pantry" :size="16" />Ajustar estoque</button
-        ><button
-          v-else-if="item.status !== 'PURCHASED'"
-          class="button secondary full"
-          @click="toggleCart(item)"
-          :disabled="saving"
-          :aria-pressed="item.status === 'IN_CART'"
-        >
-          <Icon :name="item.status === 'IN_CART' ? 'check' : 'plus'" :size="16" />{{
-            item.status === 'IN_CART' ? 'Retirar do carrinho' : 'Colocar no carrinho'
-          }}</button
-        ><span v-else class="muted"
-          ><Icon name="done" :size="16" />{{
-            item.stockApplied ? 'Adicionado à despensa' : 'Compra concluída'
-          }}</span
-        >
-      </div>
-    </article>
+      :item="item"
+      :view="pantryView"
+      @edit="edit"
+      @remove="remove"
+      @adjust="openAdjust"
+    />
   </div>
   <EmptyState
     v-else
