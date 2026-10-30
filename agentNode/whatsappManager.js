@@ -81,6 +81,8 @@ class WhatsappManager {
         this.log = logger; this.client = null; this.phase = 'disconnected'; this.qr = null;
         this.queues = new Map(); this.lifecycle = Promise.resolve(); this.reconnectTimer = null;
         this.stopping = false; this.qrVersion = 0;
+        this.connectionMode = 'own';
+        this.assistant = null;
         this.readySince = null;
         this.connectionEpoch = 0;
         this.responseQueues = new Map();
@@ -100,10 +102,56 @@ class WhatsappManager {
     }
     async status() {
         const saved = await this.repository.instance();
+        const ayla = this.connectionMode === 'dedicated' ? await (await this.assistantManager()).status() : null;
+        const sameNumber = Boolean(ayla?.connected && this.phase === 'ready' && saved.connected_number === ayla.number);
         return { instanceId: this.config.instanceId, state: this.phase, connected: this.phase === 'ready',
+            mode: this.connectionMode, ready: this.integrationActive(), ayla,
+            configurationError: sameNumber ? 'Conecte dois números diferentes: o seu e o número exclusivo da Ayla.' : null,
             desiredConnected: saved.desired_connected, number: saved.connected_number, name: saved.connected_name,
             sessionSaved: Boolean(saved.session_saved_at), sessionSavedAt: saved.session_saved_at || null,
             lastError: saved.last_error || null, updatedAt: saved.updated_at, personalChatId: saved.personal_group_chat_id || null };
+    }
+    async assistantManager() {
+        if (!this.getAssistant) throw Object.assign(new Error('Conexão exclusiva indisponível.'), {status:503});
+        this.assistant = await this.getAssistant();
+        return this.assistant;
+    }
+    integrationActive() {
+        if (this.phase !== 'ready' || !this.client || this.stopping) return false;
+        if (this.connectionMode !== 'dedicated') return true;
+        const peer = this.assistant;
+        const own = this.client.info?.wid?.user, other = peer?.client?.info?.wid?.user;
+        return Boolean(peer?.phase === 'ready' && !peer.stopping && own && other && own !== other);
+    }
+    async configure(input) {
+        if (!input || Array.isArray(input) || Object.keys(input).some(key => key !== 'mode') || !['own','dedicated'].includes(input.mode))
+            throw Object.assign(new Error('Modo de conexão inválido.'), {status:400});
+        return this.control(async () => {
+            if (input.mode !== this.connectionMode) {
+                this.cancelBuffered();
+                ++this.connectionEpoch;
+                await this.repository.configure(input.mode);
+                this.connectionMode = input.mode;
+                if (input.mode === 'dedicated') await this.assistantManager();
+                else if (this.assistant) await this.assistant.disconnect();
+            }
+            return this.status();
+        });
+    }
+    async delivery(chatId) {
+        if (!this.integrationActive()) throw Object.assign(new Error('Conecte os WhatsApps necessários para conversar.'), {status:409});
+        const ownEpoch = this.connectionEpoch;
+        if (this.connectionMode !== 'dedicated') return {client:this.client, chatId, active:()=>this.connectionEpoch === ownEpoch && this.integrationActive()};
+        const peer = this.assistant, client = peer.client, epoch = peer.connectionEpoch;
+        const contact = await this.repository.find(chatId, null);
+        const number = client.info.wid.user;
+        const personal = !chatId.endsWith('@g.us')
+            && (chatId === `${number}@c.us` || chatId === wid(client.info.wid) || contact?.phone === number);
+        // Only the private conversation with Ayla uses her dedicated account.
+        // Other chats keep the original user's sender and destination.
+        if (!personal) return {client:this.client, chatId, active:()=>this.connectionEpoch === ownEpoch && this.integrationActive()};
+        return {client, chatId:`${this.client.info.wid.user}@c.us`,
+            active:()=>this.connectionEpoch === ownEpoch && this.integrationActive() && this.assistant === peer && peer.client === client && peer.connectionEpoch === epoch};
     }
     getQR() { return { state: this.phase, qr: this.qr?.raw || null, qrImageDataUrl: this.qr?.image || null,
         qrAscii: this.qr?.ascii || null, generatedAt: this.qr?.generatedAt || null }; }
@@ -112,6 +160,12 @@ class WhatsappManager {
             if(this.phase!=='ready' || !this.client)
                 throw Object.assign(new Error('Conecte seu WhatsApp antes de criar a conversa.'),{status:409});
             const saved=await this.repository.instance();
+            if (this.connectionMode === 'dedicated') {
+                if (!this.integrationActive()) throw Object.assign(new Error('Conecte seu WhatsApp e o número exclusivo da Ayla.'), {status:409});
+                const number = this.assistant.client.info.wid.user;
+                const chat = await this.repository.authorize({chatId:`${number}@c.us`,phone:number,name:'Ayla',enabled:true,mentionOnly:false},'personal-chat');
+                return {chat,created:false,mode:'dedicated',url:`https://wa.me/${number}`};
+            }
             let chatId=saved.personal_group_chat_id || this.personalGroupId;
             let created=false;
             if(chatId) {
@@ -157,6 +211,8 @@ class WhatsappManager {
     }
     async start() {
         const saved = await this.repository.init();
+        this.connectionMode = saved.connection_mode || 'own';
+        if (this.connectionMode === 'dedicated') await this.assistantManager();
         if (saved.desired_connected) await this.connect();
         else await this.repository.state('disconnected', false);
     }
@@ -195,7 +251,7 @@ class WhatsappManager {
                 this.phase = 'ready'; this.qr = null;
                 await this.repository.state('ready', true, { number: active.info?.wid?.user, name: active.info?.pushname });
                 this.log.log('[whatsapp] conectado; backup inicial da sessão pode levar cerca de um minuto.');
-                if (!this.recoveryTimer && this.processor.recover) {
+                if (this.config.connectionRole !== 'ayla' && !this.recoveryTimer && this.processor.recover) {
                     this.recoveryTimer = setInterval(() => { void this.recoverQueuedReplies(); }, 5000);
                     this.recoveryTimer.unref?.();
                     void this.recoverQueuedReplies();
@@ -290,6 +346,8 @@ class WhatsappManager {
             && Number.isFinite(message.timestamp) && message.timestamp > this.readySince;
     }
     enqueue(message) {
+        // The secondary account only sends; the user's native fromMe events authenticate requests.
+        if (this.config.connectionRole === 'ayla' || !this.integrationActive()) return Promise.resolve();
         // Native sender identity is mandatory in every chat, including automatic chats.
         // Never trust text, display names, a mention or a quoted author as authentication.
         if (message.fromMe !== true) return Promise.resolve();
@@ -316,7 +374,7 @@ class WhatsappManager {
         return work;
     }
     async handle(message, chatId, receivingClient, epoch) {
-        if (message.fromMe !== true) return;
+        if (message.fromMe !== true || !this.integrationActive()) return;
         const messageId = messageKey(message);
         const body = String(message.body || '').trim();
         const image = isImage(message);
@@ -340,6 +398,9 @@ class WhatsappManager {
                 phone = mapped?.[0]?.pn?.split('@')[0] || null;
             }
             let contact = await this.repository.find(chatId, phone);
+            if (this.connectionMode === 'dedicated' && phone === this.assistant?.client?.info?.wid?.user && !contact?.enabled) {
+                contact = await this.repository.authorize({chatId,phone,name:'Ayla',mentionOnly:false},'personal-chat');
+            }
             if (command === 'enable') {
                 let label;
                 try { label = await receivingClient.getChatLabel?.(chatId); } catch {}
@@ -406,7 +467,7 @@ class WhatsappManager {
         return work;
     }
     async recoverQueuedReplies() {
-        if (this.stopping || this.phase !== 'ready' || !this.processor.recover || !this.repository.list) return;
+        if (!this.integrationActive() || this.config.connectionRole === 'ayla' || !this.processor.recover || !this.repository.list) return;
         try {
             if (this.repository.accountEnabled && !await this.repository.accountEnabled()) return;
             for (const contact of await this.repository.list()) {
@@ -434,7 +495,7 @@ class WhatsappManager {
         const called=messages.map(m=>m.invocation).filter(Boolean).at(-1);
         const quotedMessage=messages.map(m=>m.quotedMessage).filter(Boolean).at(-1);
         const reactionId = ids.at(-1);
-        const active = () => !this.stopping && this.client === receivingClient && this.connectionEpoch === epoch && this.phase === 'ready';
+        const active = () => this.integrationActive() && this.client === receivingClient && this.connectionEpoch === epoch;
         const authorized = current => current?.enabled && (!current.mentionOnly||called) && current.chatId === contact.chatId && current.phone === contact.phone && String(current.historyResetAt||'') === String(contact.historyResetAt||'');
         let typingTimer, reactionStart, processingReaction = false, stage = 'consultar autorização do lote';
         const react = async emoji => {
@@ -597,7 +658,7 @@ class WhatsappManager {
     }
     async sendCalendarReminder(id) {
         const client=this.client;
-        if(!client || this.phase!=='ready' || this.stopping)
+        if(!this.integrationActive())
             return {status:'FRONT_ONLY'};
         if(!await this.repository.accountEnabled())throw Object.assign(new Error('Conta inativa'),{status:403});
         const result=await this.repository.pool.query(`select r.whatsapp_status,e.title,e.location,e.starts_at,e.time_zone
@@ -618,7 +679,9 @@ class WhatsappManager {
         try {
             if(this.client!==client || this.phase!=='ready')throw new Error('Connection changed');
             const date=new Intl.DateTimeFormat('pt-BR',{dateStyle:'short',timeStyle:'short',timeZone:reminder.time_zone}).format(new Date(reminder.starts_at));
-            await this.sendText(client,primary.chatId,formatReply(`Ei! Passando para lembrar: ${reminder.title}\n${date}${reminder.location?'\nLocal: '+reminder.location:''}`));
+            const route = await this.delivery(primary.chatId);
+            if (!route.active()) throw new Error('Connection changed');
+            await this.sendText(route.client,route.chatId,formatReply(`Ei! Passando para lembrar: ${reminder.title}\n${date}${reminder.location?'\nLocal: '+reminder.location:''}`));
             await this.repository.pool.query("update calendar_reminders set whatsapp_status='SENT' where id=$1",[id]);
             return {status:'SENT'};
         } catch(error) {
@@ -664,10 +727,13 @@ class WhatsappManager {
         const audio=text && typeof text==='object'?text.audio:null;
         const formattedReply=formatReply(text && typeof text === 'object' ? text.text : text);
         const reply=formattedReply.slice(HEADER.length).trim();
-        const sendingClient=this.client;
+        const route = await this.delivery(chatId);
+        if (!route.active()) throw new Error('Connection changed');
+        const sendingClient=route.client, destination=route.chatId;
         await Promise.all(ids.map(id=>this.repository.finish(id,'sending',reply)));
-        await this.sendText(sendingClient,chatId,audio?HEADER:formattedReply);
-        if(audio && this.client===sendingClient && this.phase==='ready') {
+        if (!route.active()) throw new Error('Connection changed');
+        await this.sendText(sendingClient,destination,audio?HEADER:formattedReply);
+        if(audio && route.active()) {
             try {
                 const contact=await this.repository.find(chatId,null);
                 if(!contact?.enabled) {
@@ -677,8 +743,8 @@ class WhatsappManager {
                 this.outgoingVoiceHashes.add(hash);
                 if(this.outgoingVoiceHashes.size>500) this.outgoingVoiceHashes.delete(this.outgoingVoiceHashes.values().next().value);
                 const {MessageMedia}=require('whatsapp-web.js');
-                const voice=sendingClient.sendVoiceMedia?await sendingClient.sendVoiceMedia(chatId,audio)
-                    :await sendingClient.sendMessage(chatId,new MessageMedia(audio.mimeType,audio.data,audio.mimeType==='audio/ogg'?'ayla.ogg':'ayla.mp3'),{
+                const voice=sendingClient.sendVoiceMedia?await sendingClient.sendVoiceMedia(destination,audio)
+                    :await sendingClient.sendMessage(destination,new MessageMedia(audio.mimeType,audio.data,audio.mimeType==='audio/ogg'?'ayla.ogg':'ayla.mp3'),{
                         sendSeen:false,sendAudioAsVoice:audio.mimeType==='audio/ogg',
                     });
                 const voiceId=voice && messageKey(voice);
@@ -686,14 +752,14 @@ class WhatsappManager {
             } catch(error) {
                 const detail=String(error.message||error.name).replace(/https?:\/\/\S+/g,'[url]').slice(0,600);
                 this.log.error('[whatsapp] voz indisponível; entregando resposta em texto:',JSON.stringify({type:error.name,detail}));
-                if(this.client===sendingClient && this.phase==='ready' && (await this.repository.find(chatId,null))?.enabled)
-                    await this.sendText(sendingClient,chatId,formattedReply);
+                if(route.active() && (await this.repository.find(chatId,null))?.enabled)
+                    await this.sendText(sendingClient,destination,formattedReply);
                 await Promise.all(ids.map(id=>this.repository.finish(id,'sent',reply)));
                 return;
             }
-            if(text.textSupplement && this.client===sendingClient && this.phase==='ready'
+            if(text.textSupplement && route.active()
                     && (await this.repository.find(chatId,null))?.enabled)
-                await this.sendText(sendingClient,chatId,formatReply(text.textSupplement));
+                await this.sendText(sendingClient,destination,formatReply(text.textSupplement));
         }
         await Promise.all(ids.map(id=>this.repository.finish(id,'sent',reply)));
     }

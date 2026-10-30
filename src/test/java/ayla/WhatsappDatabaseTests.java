@@ -25,6 +25,7 @@ class WhatsappDatabaseTests {
     @Test void contactsShareOwnerButKeepSeparateStableConversationsAndRespectRevocation() {
         String owner="wa-test-"+UUID.randomUUID(), instance="test-"+UUID.randomUUID();
         var frontend=conversations.newConversation(owner,"Frontend");
+        jdbc.update("insert into auth_accounts(user_id,username,password_hash,role) values (?,?,?,'USER')",owner,owner,"test-hash");
         jdbc.update("insert into whatsapp_instances(id,owner_user_id) values (?,?)",instance,owner);
         UUID first=UUID.randomUUID(), second=UUID.randomUUID();
         jdbc.update("insert into whatsapp_chats(id,instance_id,chat_id,display_name) values (?,?,?,?)",first,instance,"5511999999999@c.us","Primeiro");
@@ -51,6 +52,12 @@ class WhatsappDatabaseTests {
     @Test void voiceSettingsSurviveNewServiceInstancesAndDriveSynthesis() {
         var dashboard=org.mockito.Mockito.mock(ayla.hermes.HermesDashboardClient.class);
         var service=new ayla.hermes.VoiceSettingsService(jdbc,dashboard);
+        String user="voice-settings-"+UUID.randomUUID(),profile="voice-"+UUID.randomUUID();
+        jdbc.update("insert into chat_users(user_id,hermes_profile,created_at) values (?,?,now())",user,profile);
+        var scope=org.mockito.Mockito.mock(ayla.hermes.HermesUserScope.class);
+        org.mockito.Mockito.when(scope.owner(user)).thenReturn(true);
+        org.mockito.Mockito.when(scope.profile(user,true)).thenReturn(profile);
+        org.springframework.test.util.ReflectionTestUtils.invokeMethod(service,"setScope",scope);
         var initial=service.get();
         assertThat(initial.voice()).isEqualTo("pt-BR-FranciscaNeural");
         assertThat(initial.speed()).isEqualByComparingTo("1.02");
@@ -59,9 +66,10 @@ class WhatsappDatabaseTests {
         try {
             service.update(changed);
             var reloaded=new ayla.hermes.VoiceSettingsService(jdbc,dashboard);
+            org.springframework.test.util.ReflectionTestUtils.invokeMethod(reloaded,"setScope",scope);
             assertThat(reloaded.get()).isEqualTo(changed);
-            reloaded.speak("default","Oi!");
-            org.mockito.Mockito.verify(dashboard).speak("default","Oi!",changed);
+            reloaded.speak(profile,"Oi!");
+            org.mockito.Mockito.verify(dashboard).speak(profile,"Oi!",changed);
         } finally {service.update(initial);}
     }
     @Test void spontaneousVoiceCooldownPersistsPerConversationAndIsReservedOnlyOnce() {

@@ -197,6 +197,7 @@ class AuthDatabaseTests {
     @Test void expiredRecoveryOrDeliveryFailurePreservesCurrentPasswordAndOfflineAccountsDoNotSend() throws Exception {
         var initial=owner();String instance="recovery-"+UUID.randomUUID();
         jdbc.update("insert into whatsapp_instances(id,owner_user_id,state,connected_number) values (?,'auth-owner','ready','5511888888888')",instance);
+        jdbc.update("insert into whatsapp_instances(id,owner_user_id,state,connected_number,connection_role,updated_at) values (?,'auth-owner','ready','5511666666666','ayla',now()+interval '1 minute')","assistant-"+UUID.randomUUID());
         auth.bindRecoveryChannel(auth.authenticate(initial.accessToken()),new RecoveryChannel(password));
         doThrow(new ayla.whatsapp.WhatsappException(503,"Entrega indisponível")).when(whatsapp).sendRecovery(anyString(),anyString(),anyString(),anyString());
         api.perform(post("/api/v1/auth/forgot-password").contentType("application/json").content("{\"username\":\"pedro\"}")).andExpect(status().isAccepted());

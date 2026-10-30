@@ -81,6 +81,7 @@ public class AuthService {
         if("OWNER".equals(rows.getFirst().get("role"))||ownerId.equals(targetId))throw new AuthException(403,"O superadministrador não pode ser excluído.");
         String instances="select id from whatsapp_instances where owner_user_id=?";
         hermes.delete(targetId);
+        try{whatsapp.post("/ayla/logout",targetId);}catch(RuntimeException ignored){}
         try{whatsapp.post("/logout",targetId);}catch(RuntimeException ignored){}
         jdbc.update("delete from auth_refresh_tokens where session_id in (select id from auth_sessions where user_id=?)",targetId);
         jdbc.update("delete from auth_sessions where user_id=?",targetId);
@@ -109,7 +110,10 @@ public class AuthService {
             jdbc.update("update auth_sessions set revoked_at=now() where user_id=? and revoked_at is null",targetId);
             jdbc.update("update auth_accounts set recovery_password_hash=null,recovery_expires_at=null where user_id=?",targetId);
             org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(new org.springframework.transaction.support.TransactionSynchronization(){
-                @Override public void afterCommit(){try{whatsapp.post("/disconnect",targetId);}catch(RuntimeException e){org.slf4j.LoggerFactory.getLogger(AuthService.class).warn("Conta inativada; desconexão WhatsApp pendente. tipo={}",e.getClass().getSimpleName());}}
+                @Override public void afterCommit(){
+                    try{whatsapp.post("/ayla/disconnect",targetId);}catch(RuntimeException ignored){}
+                    try{whatsapp.post("/disconnect",targetId);}catch(RuntimeException e){org.slf4j.LoggerFactory.getLogger(AuthService.class).warn("Conta inativada; desconexão WhatsApp pendente. tipo={}",e.getClass().getSimpleName());}
+                }
             });
         }
     }
@@ -208,8 +212,6 @@ public class AuthService {
         if(profiles.name(identity.userId())==null)throw new AuthException(409,"Informe seu nome para continuar.");
         if(Boolean.TRUE.equals(jdbc.queryForObject("select password_temporary from auth_accounts where user_id=?",Boolean.class,identity.userId())))
         throw new AuthException(409,"Troque a senha provisória para continuar.");
-        if(!Boolean.TRUE.equals(jdbc.queryForObject("select exists(select 1 from whatsapp_instances where owner_user_id=? and state='ready')",Boolean.class,identity.userId())))
-            throw new AuthException(409,"Conecte o WhatsApp para continuar.");
         boolean hermesReady;
         try{hermesReady=hermes.ready(identity.userId());}catch(RuntimeException e){hermesReady=false;}
         if(!hermesReady)throw new AuthException(409,"Conclua a configuração do Hermes para continuar.");
@@ -245,7 +247,7 @@ public class AuthService {
         return Map.of("maskedNumber","***"+phone.substring(Math.max(0,phone.length()-4)));
     }
     private String bindConnectedNumber(String user,boolean required) {
-        var phones=jdbc.queryForList("select connected_number from whatsapp_instances where owner_user_id=? and state='ready' and connected_number is not null order by updated_at desc limit 1",String.class,user);
+        var phones=jdbc.queryForList("select connected_number from whatsapp_instances where owner_user_id=? and connection_role='user' and state='ready' and connected_number is not null order by updated_at desc limit 1",String.class,user);
         if(phones.isEmpty()) {if(required)throw new AuthException(409,"Conecte o WhatsApp deste usuário antes de cadastrar a recuperação.");return null;}
         String phone=phones.getFirst();
         jdbc.update("update auth_accounts set recovery_phone=?,recovery_password_hash=null,recovery_expires_at=null where user_id=?",phone,user);

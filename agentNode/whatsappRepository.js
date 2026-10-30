@@ -16,9 +16,10 @@ class WhatsappRepository {
         // Flyway owns schema creation. Do not create a second independent migration history.
         await this.pool.query('select 1 from whatsapp_instances limit 0');
         await this.pool.query(`insert into chat_users(user_id,hermes_profile,created_at) values ($1,$2,CURRENT_TIMESTAMP) on conflict(user_id) do nothing`, [this.config.ownerId, this.config.defaultProfile === undefined ? 'default' : this.config.defaultProfile]);
-        await this.pool.query('insert into whatsapp_instances(id,owner_user_id) values ($1,$2) on conflict(id) do nothing', [this.config.instanceId, this.config.ownerId]);
+        await this.pool.query('insert into whatsapp_instances(id,owner_user_id,connection_role) values ($1,$2,$3) on conflict(id) do nothing', [this.config.instanceId, this.config.ownerId, this.config.connectionRole || 'user']);
         const state = await this.instance();
         if (state.owner_user_id !== this.config.ownerId) throw new Error('A instância WhatsApp pertence a outro proprietário.');
+        if (state.connection_role !== (this.config.connectionRole || 'user')) throw new Error('A instância WhatsApp pertence a outra função.');
         return state;
     }
     async instance() {
@@ -38,6 +39,9 @@ class WhatsappRepository {
     async savePersonalGroup(chatId) {
         await this.pool.query('update whatsapp_instances set personal_group_chat_id=$2,updated_at=CURRENT_TIMESTAMP where id=$1',
             [this.config.instanceId,chatId]);
+    }
+    async configure(mode) {
+        await this.pool.query('update whatsapp_instances set connection_mode=$2,updated_at=CURRENT_TIMESTAMP where id=$1', [this.config.instanceId, mode]);
     }
     async list() {
         const result = await this.pool.query('select * from whatsapp_chats where instance_id=$1 order by created_at,id', [this.config.instanceId]);

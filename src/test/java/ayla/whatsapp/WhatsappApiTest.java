@@ -13,6 +13,22 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 class WhatsappApiTest {
+    @Test void connectionModesAndBothQrSessionsAreScopedToTheAuthenticatedUser() throws Exception {
+        var gateway=mock(WhatsappGateway.class);
+        when(gateway.write("PUT","/configuration",Map.of("mode","dedicated"),"alice")).thenReturn(Map.of("mode","dedicated","ready",false));
+        when(gateway.get("/ayla/qr","alice")).thenReturn(Map.of("qrImageDataUrl","private-qr"));
+        when(gateway.post("/ayla/connect","alice")).thenReturn(Map.of("state","connecting"));
+        var api=MockMvcBuilders.standaloneSetup(new MyWhatsappController(gateway,new ChatIdentity("owner"))).build();
+        api.perform(put("/api/v1/me/whatsapp/configuration").principal(()->"alice").contentType("application/json").content("{\"mode\":\"dedicated\"}"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.ready").value(false));
+        api.perform(get("/api/v1/me/whatsapp/ayla/qr").principal(()->"alice"))
+            .andExpect(status().isOk()).andExpect(header().string("Cache-Control","no-store"));
+        api.perform(post("/api/v1/me/whatsapp/ayla/connect").principal(()->"alice"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.state").value("connecting"));
+        verify(gateway).get("/ayla/qr","alice");
+        verify(gateway).post("/ayla/connect","alice");
+        verify(gateway,never()).get("/ayla/qr","owner");
+    }
     @Test void recoveryGatewaySerializesThePrivatePayloadWithoutSendingItThroughChat() throws Exception {
         var server=com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1",0),0);
         var captured=new java.util.concurrent.atomic.AtomicReference<java.util.Map>();
@@ -36,7 +52,7 @@ class WhatsappApiTest {
         var chat=mock(ChatService.class); var access=mock(WhatsappAccess.class);
         UUID contact=UUID.randomUUID(), conversation=UUID.randomUUID();
         var image=new ChatImage("image/jpeg","/9j/4AAA");
-        when(access.resolve("Bearer node-key",contact.toString())).thenReturn(new WhatsappAccess.Access("owner",conversation));
+        when(access.resolve("Bearer node-key",contact.toString(),null)).thenReturn(new WhatsappAccess.Access("owner",conversation));
         when(chat.chat(any(),eq("owner"))).thenReturn(new ChatResponse("Oi!","session"));
         var api=MockMvcBuilders.standaloneSetup(new ChatController(chat,new ChatIdentity("owner"),access)).build();
         api.perform(post("/api/v1/chat").header("Authorization","Bearer node-key").header("X-Ayla-WhatsApp-Chat",contact)

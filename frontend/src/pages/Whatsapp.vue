@@ -1,19 +1,21 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { api } from '../lib/api'
 import { toast, confirmAction } from '../lib/ui'
-import { timestamp } from '../lib/format'
 import Icon from '../components/Icon.vue'
 import MaskedInput from '../components/MaskedInput.vue'
 import Modal from '../components/Modal.vue'
 import EmptyState from '../components/EmptyState.vue'
+import WhatsappConnection from '../components/WhatsappConnection.vue'
 const status = ref(null),
-  qr = ref(null),
+  connection = ref(null),
   chats = ref([]),
   error = ref(''),
   busy = ref(false),
   form = ref(null),
   formError = ref('')
+const ready = computed(() => status.value?.ready ?? status.value?.connected ?? false)
+const dedicated = computed(() => status.value?.mode === 'dedicated')
 let timer,
   disposed = false,
   polling = false
@@ -21,14 +23,10 @@ async function load() {
   if (polling) return
   polling = true
   try {
-    const [s, c] = await Promise.all([api('/me/whatsapp/status'), api('/me/whatsapp/chats')])
+    const c = await api('/me/whatsapp/chats')
     if (disposed) return
-    status.value = s
     chats.value = c
     error.value = ''
-    if (!s.connected) {
-      qr.value = await api('/me/whatsapp/qr')
-    } else qr.value = null
   } catch (e) {
     if (!disposed) error.value = e.message
   } finally {
@@ -43,30 +41,14 @@ onBeforeUnmount(() => {
   disposed = true
   clearInterval(timer)
 })
-async function action(name) {
-  if (
-    name === 'logout' &&
-    !(await confirmAction(
-      'Sair do WhatsApp?',
-      'A sessão salva será apagada. Será necessário ler outro QR code.',
-    ))
-  )
-    return
-  busy.value = true
-  try {
-    await api('/me/whatsapp/' + name, { method: 'POST' })
-    await load()
-    toast(name === 'connect' ? 'Conexão solicitada.' : 'Solicitação concluída.')
-  } catch (e) {
-    toast(e.message, 'error')
-  } finally {
-    busy.value = false
-  }
-}
 async function createPersonalChat() {
   busy.value = true
   try {
     const result = await api('/me/whatsapp/personal-chat', { method: 'POST' })
+    if (result.mode === 'dedicated') {
+      window.location.assign(result.url)
+      return
+    }
     toast(
       result.created
         ? 'Grupo Ayla criado! Abra seu WhatsApp para conversar.'
@@ -78,6 +60,7 @@ async function createPersonalChat() {
         'error',
       )
     await load()
+    await connection.value?.refresh()
   } catch (e) {
     toast(e.message, 'error')
   } finally {
@@ -104,7 +87,10 @@ async function save() {
       if (f.destination.includes('@')) body.chatId = f.destination.trim()
       else body.phone = f.destination.replace(/\D/g, '')
     }
-    await api('/me/whatsapp/chats' + (f.id ? '/' + f.id : ''), { method: f.id ? 'PUT' : 'POST', body })
+    await api('/me/whatsapp/chats' + (f.id ? '/' + f.id : ''), {
+      method: f.id ? 'PUT' : 'POST',
+      body,
+    })
     form.value = null
     toast('Conversa salva.')
     await load()
@@ -132,82 +118,29 @@ async function remove(chat) {
       <h1>Uma conversa de distância.</h1>
       <p>Conecte seu WhatsApp e leve a Ayla com você.</p>
     </div>
-    <span :class="['pill', status?.connected ? 'green' : 'neutral']"
+    <span :class="['pill', ready ? 'green' : 'neutral']"
       ><span class="status-dot" />{{
-        status?.connected
-          ? 'Conectado'
-          : status?.state === 'connecting'
-            ? 'Conectando…'
-            : 'Desconectado'
+        ready ? 'Conectado' : status?.state === 'connecting' ? 'Conectando…' : 'Desconectado'
       }}</span
     >
   </div>
   <div v-if="error" class="banner error" role="alert">
     {{ error }}<button class="text-link" @click="load">Atualizar</button>
   </div>
-  <section class="panel connection-panel">
-    <div>
-      <span class="stat-icon mint large"><Icon name="phone" :size="30" /></span>
-      <h2>{{ status?.connected ? 'Pronto para conversar.' : 'Vamos conectar?' }}</h2>
-      <p class="muted">
-        {{
-          status?.connected
-            ? `${status.name || 'Seu WhatsApp'} · ${status.number || ''}`
-            : 'No celular, abra WhatsApp → Dispositivos conectados → Conectar dispositivo.'
-        }}
-      </p>
-      <p v-if="status?.sessionSaved" class="footnote">
-        <Icon name="shield" :size="14" />Sessão salva · {{ timestamp(status.sessionSavedAt) }}
-      </p>
-      <div class="button-row">
-        <button
-          v-if="!status?.connected"
-          class="button primary"
-          :disabled="busy"
-          @click="action('connect')"
-        >
-          <Icon name="phone" :size="17" />Conectar WhatsApp</button
-        ><button
-          v-if="status?.connected"
-          class="button secondary"
-          :disabled="busy"
-          @click="action('disconnect')"
-        >
-          Pausar conexão</button
-        ><button class="button secondary" :disabled="busy" @click="action('restart')">
-          <Icon name="refresh" :size="16" />Reconectar</button
-        ><button
-          v-if="status?.sessionSaved"
-          class="button subtle danger-text"
-          :disabled="busy"
-          @click="action('logout')"
-        >
-          Sair e apagar sessão
-        </button>
-      </div>
-    </div>
-    <div class="qr-area">
-      <img
-        v-if="qr?.qrImageDataUrl"
-        :src="qr.qrImageDataUrl"
-        alt="QR code para conectar o WhatsApp"
-      />
-      <div v-else :class="['qr-placeholder', { connected: status?.connected }]">
-        <Icon :name="status?.connected ? 'done' : 'phone'" :size="54" /><span>{{
-          status?.connected
-            ? 'Tudo conectado'
-            : !status || status?.state === 'connecting' || busy
-              ? 'Carregando QR code…'
-              : 'Seu QR code aparece aqui'
-        }}</span>
-      </div>
-    </div>
+  <section class="panel">
+    <WhatsappConnection ref="connection" @status="status = $event" />
   </section>
   <section class="panel personal-chat-panel">
     <div class="panel-heading">
       <div>
         <h2>Seu cantinho com a Ayla</h2>
-        <p>Um grupo chamado Ayla, só com seu número, para conversar com ela no WhatsApp.</p>
+        <p>
+          {{
+            dedicated
+              ? 'Converse diretamente com o número exclusivo da Ayla pelo seu WhatsApp.'
+              : 'Um grupo chamado Ayla, só com seu número, para conversar com ela no WhatsApp.'
+          }}
+        </p>
       </div>
       <Icon name="chat" />
     </div>
@@ -215,24 +148,22 @@ async function remove(chat) {
       Essa será sua conversa principal. A anterior passa a atender quando você chamar Ayla0101.
     </p>
     <div class="button-row">
-      <button
-        class="button primary"
-        :disabled="busy || !status?.connected"
-        @click="createPersonalChat"
-      >
+      <button class="button primary" :disabled="busy || !ready" @click="createPersonalChat">
         <Icon name="plus" :size="17" />{{
           busy
             ? 'Aguarde…'
-            : status?.personalChatId
+            : status?.personalChatId || dedicated
               ? 'Continuar conversa com Ayla'
               : 'Começar conversa com Ayla'
         }}
       </button>
     </div>
-    <p v-if="status?.personalChatId" class="footnote">
+    <p v-if="!dedicated && status?.personalChatId" class="footnote">
       Pronto! Abra seu WhatsApp e procure o grupo Ayla. Você já pode falar por lá.
     </p>
-    <p v-else-if="!status?.connected" class="footnote">Conecte seu WhatsApp para criar o grupo.</p>
+    <p v-else-if="!ready" class="footnote">
+      Conclua as conexões acima para conversar pelo WhatsApp.
+    </p>
   </section>
   <div class="tip-strip">
     <Icon name="shield" /><span

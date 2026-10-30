@@ -4,6 +4,19 @@ O `agentNode` recebe mensagens do WhatsApp e chama `POST /api/v1/chat` da API Ja
 
 ## Iniciar
 
+### Conexão opcional e dois modos
+
+O onboarding mantém a etapa WhatsApp e permite **Pular por enquanto**, mesmo se o serviço estiver indisponível. Nome, troca de senha provisória e Hermes continuam obrigatórios; o chat do site funciona sem WhatsApp. O botão de conversar pelo WhatsApp, sem uma configuração pronta, abre um modal com **Cancelar** e **Configurar WhatsApp**.
+
+- **Usar meu próprio número** é a opção principal e preserva o grupo pessoal e as respostas pela mesma conta conectada.
+- **Usar um número exclusivo para a Ayla** exige dois pareamentos por QR: a conta do usuário e uma conta diferente para a Ayla. O atendimento só funciona enquanto ambas estão prontas. O botão de conversa autoriza a conversa privada e abre `wa.me` do número da Ayla, para uso pelo WhatsApp do usuário; não cria grupo.
+
+No modo exclusivo, a sessão do usuário recebe apenas seus eventos nativos `fromMe === true`, identifica os pedidos e lê o contexto solicitado. Na conversa privada entre usuário e Ayla, as respostas saem pela conta exclusiva da Ayla. Em todas as outras conversas e grupos, as chamadas `Ayla0101` recebem resposta pelo WhatsApp do próprio usuário, na mesma conversa, como no modo de um número só. Não é necessário adicionar o número da Ayla aos grupos, e as respostas dessas chamadas não são redirecionadas ao privado. Mensagens de terceiros e mensagens enviadas pela própria conta da Ayla não acionam a IA. As invocações continuam isoladas das memórias da conversa principal. Áudios, respostas de contingência e lembretes seguem a mesma regra de envio conforme o destino.
+
+`PUT /api/v1/me/whatsapp/configuration` aceita somente `{ "mode": "own" }` ou `{ "mode": "dedicated" }`. O status retorna `mode`, `ready`, o estado do usuário em `connected` e o da conta exclusiva em `ayla`. `ready` exige dois números distintos no modo exclusivo. O QR exclusivo é `/api/v1/me/whatsapp/ayla/qr`; as ações `/ayla/connect`, `/ayla/disconnect`, `/ayla/restart` e `/ayla/logout` seguem a mesma base autenticada. A migração V42 preserva todas as conexões anteriores no modo próprio. As sessões têm identificadores e backups separados, vinculados ao mesmo proprietário. A recuperação de senha continua vinculada somente ao número do usuário, nunca ao da Ayla.
+
+As instruções sobre grupo pessoal e envio pela mesma conta, abaixo, descrevem o modo **Usar meu próprio número**.
+
 ### Criar a conversa pessoal pelo painel
 
 Em **WhatsApp → Seu cantinho com a Ayla**, conecte a conta e clique em **Criar minha conversa Ayla**. O endpoint autenticado do proprietário `POST /api/v1/whatsapp/personal-chat` cria o grupo `Ayla` com uma lista vazia de convidados: somente o próprio número conectado participa. Ele fica autorizado automaticamente como principal, sem precisar enviar um comando. A principal anterior passa a chamadas pontuais.

@@ -9,7 +9,7 @@ let running = false
 
 function animate() {
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    brandText.value = 'A'
+    brandText.value = 'Ayla'
     brandSettled.value = true
     return
   }
@@ -22,9 +22,6 @@ function animate() {
     ['Ay', 150],
     ['Ayl', 190],
     ['Ayla', 1500],
-    ['Ayl', 150],
-    ['Ay', 180],
-    ['A', 0],
   ]
   let index = 0
   function advance() {

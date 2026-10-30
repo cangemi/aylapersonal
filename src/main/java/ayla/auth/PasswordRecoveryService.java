@@ -44,7 +44,7 @@ public class PasswordRecoveryService {
             var rows=jdbc.queryForList("""
                     select a.user_id,a.recovery_phone from auth_accounts a where a.username=? and a.enabled and a.recovery_phone is not null
                     and (a.recovery_requested_at is null or a.recovery_requested_at<now()-interval '5 minutes')
-                    and exists(select 1 from whatsapp_instances i where i.owner_user_id=a.user_id and i.state='ready' and i.connected_number=a.recovery_phone)
+                    and exists(select 1 from whatsapp_instances i where i.owner_user_id=a.user_id and i.connection_role='user' and i.state='ready' and i.connected_number=a.recovery_phone)
                     for update of a
                     """,normalized);
             if(rows.isEmpty())return null;

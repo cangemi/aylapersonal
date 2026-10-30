@@ -48,6 +48,96 @@ function clock() {
     };
 }
 
+function dedicatedFixture() {
+    const f = fixture(), peer = fixture();
+    peer.client.info.wid = {user:'5511777777777',_serialized:'5511777777777@c.us'};
+    peer.manager.config.connectionRole = 'ayla';
+    f.manager.connectionMode = 'dedicated';
+    f.manager.assistant = peer.manager;
+    f.manager.getAssistant = async () => peer.manager;
+    f.repository.configure = async mode => { f.repository.savedMode = mode; };
+    return {...f, peer};
+}
+
+test('dedicated mode requires both different accounts and rejects messages from third parties and the sending account', async () => {
+    const f = dedicatedFixture();
+    f.peer.manager.phase = 'disconnected';
+    await f.manager.enqueue(f.message('incomplete', 'Ayla0101 oi'));
+    await assert.rejects(f.manager.createPersonalChat(), {status:409});
+    assert.equal(f.calls.length, 0); assert.equal(f.contacts.size, 0);
+    f.peer.manager.phase = 'ready';
+    f.peer.client.info.wid.user = f.client.info.wid.user;
+    assert.equal((await f.manager.status()).ready, false);
+    assert.match((await f.manager.status()).configurationError, /diferentes/);
+    f.peer.client.info.wid.user = '5511777777777';
+    await f.manager.enqueue(f.message('third-party', 'configurar Ayla0101', undefined, false));
+    await f.peer.manager.enqueue(f.peer.message('assistant-outgoing', 'Ayla0101 oi'));
+    assert.equal(f.contacts.size, 0); assert.equal(f.peer.contacts.size, 0);
+    assert.equal((await f.manager.status()).ready, true);
+});
+
+test('dedicated personal chat opens the Ayla number and receives only the registered users native outgoing requests', async () => {
+    const f = dedicatedFixture();
+    f.client.createGroup = async () => { throw new Error('must not create a group'); };
+    const result = await f.manager.createPersonalChat();
+    assert.equal(result.mode, 'dedicated');
+    assert.equal(result.url, 'https://wa.me/5511777777777');
+    assert.equal(result.chat.mentionOnly, false);
+    await f.manager.enqueue(f.message('direct-owner', 'Oi Ayla', '5511777777777@c.us'));
+    assert.equal(f.calls.length, 1);
+    assert.equal(f.sent.length, 0);
+    assert.equal(f.peer.sent.length, 1);
+    assert.equal(f.peer.sent[0].chatId, '5511888888888@c.us');
+    await f.manager.enqueue(f.message('direct-outsider', 'Ayla0101', '5511777777777@c.us', false));
+    assert.equal(f.calls.length, 1);
+});
+
+test('dedicated mode keeps invocations in other chats on the users account and original destination', async () => {
+    const f = dedicatedFixture(), group = '120363000000000000@g.us';
+    f.client.readInvocationContext = async () => ({messages:[],quoted:null});
+    f.peer.client.canReplyToGroup = async () => { throw new Error('membership must not be queried'); };
+    await f.manager.enqueue(f.message('dedicated-group', 'Ayla0101 resuma', group));
+    assert.equal(f.sent[0].chatId, group);
+    assert.equal(f.calls[0].contact.mentionOnly, true);
+    await f.manager.enqueue(f.message('dedicated-fallback', 'Ayla0101 resuma', group));
+    assert.equal(f.sent[1].chatId, group);
+    await f.manager.enqueue(f.message('dedicated-private', 'Ayla0101 resuma', '5511666666666@c.us'));
+    assert.equal(f.sent[2].chatId, '5511666666666@c.us');
+    assert.equal(f.peer.sent.length, 0);
+    assert.equal(f.calls[2].contact.mentionOnly, true);
+});
+
+test('other chats preserve the users voice sender while the private Ayla chat recognizes phone-mapped LIDs', async () => {
+    const f = dedicatedFixture(), group = '120363000000000000@g.us';
+    await f.repository.authorize({chatId:group,name:'Group',mentionOnly:true});
+    let voices = 0;
+    f.client.sendVoiceMedia = async destination => {assert.equal(destination,group); voices++;};
+    f.peer.client.sendVoiceMedia = async () => {throw new Error('must not use Ayla for another chat');};
+    await f.manager.send(group,{text:'Resposta',audio:{mimeType:'audio/ogg',data:'T2dnUw=='}},[]);
+    assert.equal(voices,1); assert.equal(f.sent[0].chatId,group); assert.equal(f.peer.sent.length,0);
+    const lid = '999999999999999@lid';
+    await f.repository.authorize({chatId:lid,phone:'5511777777777',name:'Ayla',mentionOnly:false});
+    await f.manager.send(lid,'Oi no privado',[]);
+    assert.equal(f.peer.sent[0].chatId,'5511888888888@c.us');
+});
+
+test('dedicated replies route voice and text fallback through Ayla and mode changes invalidate in-flight deliveries', async () => {
+    const f = dedicatedFixture(), destination = '5511777777777@c.us';
+    await f.manager.createPersonalChat();
+    f.peer.client.sendVoiceMedia = async chatId => { assert.equal(chatId, '5511888888888@c.us'); return {id:{_serialized:'voice-response'}}; };
+    await f.manager.send(destination, {text:'Olá',audio:{mimeType:'audio/ogg',data:'T2dnUw=='}}, []);
+    assert.equal(f.peer.sent.length, 1);
+    f.peer.client.sendVoiceMedia = async () => { throw new Error('voice unavailable'); };
+    await f.manager.send(destination, {text:'Fallback',audio:{mimeType:'audio/ogg',data:'T2dnUw=='}}, []);
+    assert.match(f.peer.sent.at(-1).text, /Fallback/);
+    const oldRoute = await f.manager.delivery(destination);
+    await f.manager.configure({mode:'own'});
+    assert.equal(f.repository.savedMode, 'own'); assert.equal(oldRoute.active(), false);
+    await f.manager.send(destination, 'Modo original', []);
+    assert.equal(f.sent.length, 1);
+    await assert.rejects(f.manager.configure({mode:'dedicated',userId:'other'}), {status:400});
+});
+
 test('new batches are persisted before the previous answer finishes while deliveries stay ordered', async () => {
     const timers=clock(),f=fixture({batchDelayMs:10000,batchTimers:timers});
     await f.manager.enqueue(f.message('queue-enable','configurar ayla0101'));

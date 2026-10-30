@@ -44,8 +44,8 @@ public class WhatsappGateway {
             if(path.equals("/personal-chat")) {
                 int code=e.getStatusCode().value();
                 throw new WhatsappException(code==409?409:503,code==409
-                        ?"Conecte seu WhatsApp e aguarde ficar pronto para criar a conversa Ayla."
-                        :"Não foi possível preparar o grupo. Confira se Ayla apareceu no WhatsApp antes de tentar novamente; se apareceu, configure essa conversa pelo painel.");
+                        ?"Conclua as conexões do WhatsApp para preparar sua conversa com a Ayla. No modo exclusivo, conecte os dois números."
+                        :"Não foi possível preparar a conversa. Confira as conexões e se a conversa Ayla já apareceu no WhatsApp antes de tentar novamente.");
             }
             String message=switch(e.getStatusCode().value()) {
                 case 400 -> "Dados da conversa inválidos. Informe telefone com país/DDD ou chatId, nome e habilitação.";

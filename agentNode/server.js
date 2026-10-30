@@ -31,6 +31,15 @@ function createApp({ manager, repository, registry, apiKey }) {
     };
     app.get('/status', scoped(async ({ manager }, req, res) => res.json(await manager.status())));
     app.get('/qr', scoped(async ({ manager }, req, res) => res.json(manager.getQR())));
+    app.put('/configuration', scoped(async ({ manager }, req, res) => res.json(await manager.configure(req.body))));
+    const assistant = async (manager) => {
+        if (manager.connectionMode !== 'dedicated') throw Object.assign(new Error('Selecione o número exclusivo da Ayla.'), {status:409});
+        return manager.getAssistant();
+    };
+    app.get('/ayla/qr', scoped(async ({manager}, req, res) => res.json((await assistant(manager)).getQR())));
+    for (const action of ['connect', 'disconnect', 'restart', 'logout']) {
+        app.post(`/ayla/${action}`, scoped(async ({manager}, req, res) => res.json(await (await assistant(manager))[action]())));
+    }
     app.post('/connect', scoped(async ({ manager }, req, res) => res.status(202).json(await manager.connect())));
     app.post('/disconnect', scoped(async ({ manager }, req, res) => res.json(await manager.disconnect())));
     app.post('/restart', scoped(async ({ manager }, req, res) => res.status(202).json(await manager.restart())));

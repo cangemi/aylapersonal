@@ -18,6 +18,9 @@ public class MyWhatsappController {
     private ResponseEntity<Object> result(Object value) { return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(value); }
     @GetMapping("/status") public ResponseEntity<Object> status(@Parameter(hidden = true) Principal p) { return result(gateway.get("/status", identity.resolve(p))); }
     @GetMapping("/qr") public ResponseEntity<Object> qr(@Parameter(hidden = true) Principal p) { return result(gateway.get("/qr", identity.resolve(p))); }
+    @PutMapping("/configuration") public ResponseEntity<Object> configure(@RequestBody java.util.Map<String, Object> input, @Parameter(hidden = true) Principal p) { return result(gateway.write("PUT", "/configuration", input, identity.resolve(p))); }
+    @GetMapping("/ayla/qr") public ResponseEntity<Object> aylaQr(@Parameter(hidden = true) Principal p) { return result(gateway.get("/ayla/qr", identity.resolve(p))); }
+    @PostMapping("/ayla/{action:connect|disconnect|restart|logout}") public ResponseEntity<Object> aylaAction(@PathVariable String action, @Parameter(hidden = true) Principal p) { return result(gateway.post("/ayla/" + action, identity.resolve(p))); }
     @PostMapping("/connect") public ResponseEntity<Object> connect(@Parameter(hidden = true) Principal p) { return result(gateway.post("/connect", identity.resolve(p))); }
     @PostMapping("/disconnect") public ResponseEntity<Object> disconnect(@Parameter(hidden = true) Principal p) { return result(gateway.post("/disconnect", identity.resolve(p))); }
     @PostMapping("/logout") public ResponseEntity<Object> logout(@Parameter(hidden = true) Principal p) { return result(gateway.post("/logout", identity.resolve(p))); }

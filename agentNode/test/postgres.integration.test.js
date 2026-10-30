@@ -19,6 +19,15 @@ test('PostgreSQL persists contact CRUD, message deduplication and encrypted Remo
         const config = { instanceId: 'test-' + crypto.randomUUID(), ownerId: 'wa-owner-' + crypto.randomUUID(), authDir: root, sessionKey: crypto.randomBytes(32) };
         const repo = new WhatsappRepository(pool, config);
         await repo.init(); await repo.state('ready', true, { number: '5511888888888' });
+        await repo.configure('dedicated');
+        assert.equal((await new WhatsappRepository(pool, config).instance()).connection_mode, 'dedicated');
+        const assistant = new WhatsappRepository(pool, {...config, instanceId:config.instanceId + '-ayla', connectionRole:'ayla'});
+        await assistant.init();
+        assert.equal((await assistant.instance()).connection_role, 'ayla');
+        assert.equal((await repo.instance()).connection_role, 'user');
+        await assistant.state('ready', true, {number:'5511777777777'});
+        assert.equal((await repo.instance()).connected_number, '5511888888888');
+        assert.equal((await assistant.instance()).connected_number, '5511777777777');
         assert.equal((await repo.instance()).desired_connected, true);
         const contact = await repo.authorize({ phone: '5511999999999', name: 'Contato' });
         assert.equal(contact.chatId, '5511999999999@c.us');
