@@ -26,6 +26,7 @@ const month = ref(today.slice(0, 7)),
   search = ref('')
 const google = ref({ configured: false, connected: false }),
   connecting = ref(false),
+  syncRequesting = ref(false),
   notifications = ref([]),
   archivedNotifications = ref([])
 const dialog = ref(false),
@@ -304,12 +305,16 @@ async function disconnect() {
   }
 }
 async function sync() {
+  if (syncRequesting.value || google.value.syncStatus === 'SYNCING') return
+  syncRequesting.value = true
   try {
     await api('/calendar/google/sync', { method: 'POST' })
-    toast('Atualização solicitada.')
+    toast('Sincronização solicitada. A agenda será atualizada em instantes.')
     await extras()
   } catch (e) {
     toast(e.message, 'error')
+  } finally {
+    syncRequesting.value = false
   }
 }
 async function read(id) {
@@ -596,8 +601,15 @@ onBeforeUnmount(() => {
             (abre a autorização no site do Google)</span
           ></button
         ><template v-if="google.connected"
-          ><button class="button secondary" @click="sync">
-            <Icon name="refresh" :size="16" />Atualizar</button
+          ><button
+            class="button secondary"
+            :disabled="syncRequesting || google.syncStatus === 'SYNCING'"
+            :aria-busy="syncRequesting || google.syncStatus === 'SYNCING'"
+            @click="sync"
+          >
+            <Icon :name="syncRequesting || google.syncStatus === 'SYNCING' ? 'loading' : 'refresh'" :size="16" />
+            {{ syncRequesting ? 'Solicitando…' : google.syncStatus === 'SYNCING' ? 'Sincronizando…' : 'Sincronizar agora' }}
+          </button
           ><button class="text-link" @click="disconnect">Desconectar</button></template
         >
       </div>

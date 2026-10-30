@@ -1,0 +1,96 @@
+package ayla.calendar;
+
+import static ayla.calendar.CalendarService.*;
+import java.time.*;
+import java.util.*;
+import java.net.*;
+import java.net.http.*;
+import java.nio.charset.StandardCharsets;
+import java.sql.Timestamp;
+import java.security.SecureRandom;
+import javax.crypto.*;
+import javax.crypto.spec.*;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import tools.jackson.databind.json.JsonMapper;
+
+/** PostgreSQL outbox + bounded rolling Google snapshot. No credentials leave the server. */
+@Service
+public class GoogleCalendarSync {
+    private final JdbcTemplate jdbc;private final CalendarService calendar;private final ayla.cluster.ClusterOperations cluster;
+    private final TransactionTemplate tx;private final String clientId,clientSecret,redirect,frontendUrl;private final byte[] encryptionKey;
+    private final JsonMapper json=JsonMapper.builder().build();private final SecureRandom random=new SecureRandom();
+    private final HttpClient http=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+    private static final String API="https://www.googleapis.com/calendar/v3";
+    private static class GoogleFailure extends RuntimeException {final int status;GoogleFailure(int status){super("Google Calendar unavailable");this.status=status;}}
+    public GoogleCalendarSync(JdbcTemplate jdbc,CalendarService calendar,ayla.cluster.ClusterOperations cluster,PlatformTransactionManager manager,
+            @Value("${ayla.calendar.google.client-id:}") String clientId,@Value("${ayla.calendar.google.client-secret:}") String clientSecret,
+            @Value("${ayla.calendar.google.redirect-uri:http://localhost:8080/api/v1/calendar/google/callback}") String redirect,
+            @Value("${ayla.calendar.encryption-key:}") String encryptionKey,
+            @Value("${ayla.frontend.url:http://localhost:3000}") String frontendUrl){
+        this.jdbc=jdbc;this.calendar=calendar;this.cluster=cluster;tx=new TransactionTemplate(manager);this.clientId=clientId;this.clientSecret=clientSecret;this.redirect=redirect;this.frontendUrl=frontendUrl;
+        byte[] decoded;try{decoded=Base64.getDecoder().decode(encryptionKey);}catch(Exception e){decoded=new byte[0];}this.encryptionKey=decoded;
+    }
+    boolean configured(){return !clientId.isBlank()&&!clientSecret.isBlank()&&encryptionKey.length==32;}
+    public Map<String,Object> status(String user){
+        var rows=jdbc.queryForList("select label,refresh_secret<>' ' and refresh_secret<>'' as connected,last_sync_at,sync_status from calendar_google_connections where user_id=?",user);
+        var value=new LinkedHashMap<String,Object>();value.put("configured",configured());value.put("connected",false);value.put("syncWindow","Google: últimos 30 dias e próximos 24 meses; eventos locais são enviados independentemente desse período.");
+        if(!rows.isEmpty()){value.putAll(rows.getFirst());Object instant=value.remove("last_sync_at");value.put("lastSyncAt",instant);value.put("syncStatus",value.remove("sync_status"));}
+        return value;
+    }
+    public String connect(String user){
+        if(!configured())throw error(503,"A agenda própria está pronta. Configure a conexão Google no servidor para autorizar sua conta.");
+        byte[] bytes=new byte[32];random.nextBytes(bytes);String state=Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+        jdbc.update("delete from calendar_oauth_states where expires_at<now() or user_id=?",user);
+        jdbc.update("insert into calendar_oauth_states(state_hash,user_id) values (?,?)",hash(state),user);
+        return "https://accounts.google.com/o/oauth2/v2/auth?"+form(Map.of("client_id",clientId,"redirect_uri",redirect,"response_type","code","scope","https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly","access_type","offline","prompt","consent","state",state));
+    }
+    public void callback(String state,String code){
+        if(!configured()||state==null||code==null||state.length()>200||code.length()>4096)throw error(400,"Autorização inválida.");
+        String user=tx.execute(status->{var rows=jdbc.queryForList("delete from calendar_oauth_states where state_hash=? and expires_at>now() returning user_id",String.class,hash(state));if(rows.size()!=1)throw error(400,"Autorização expirada. Conecte novamente.");return rows.getFirst();});
+        if(!Boolean.TRUE.equals(jdbc.queryForObject("select enabled from auth_accounts where user_id=?",Boolean.class,user)))throw error(403,"Conta inativa.");
+        Map<String,Object> tokens;
+        try{tokens=token(Map.of("client_id",clientId,"client_secret",clientSecret,"redirect_uri",redirect,"grant_type","authorization_code","code",code));}catch(RuntimeException e){throw error(503,"Não foi possível concluir a autorização Google. Tente conectar novamente.");}
+        String refresh=string(tokens,"refresh_token");if(refresh.isBlank())throw error(409,"Autorize o acesso novamente para permitir sincronização em segundo plano.");
+        var meta=api("GET","/calendars/primary",string(tokens,"access_token"),null,null);
+        String calendarId=string(meta,"id"),label=string(meta,"summary");if(calendarId.isBlank())throw error(503,"Não consegui identificar a agenda Google.");
+        cluster.exclusive("google-calendar:"+user,()->tx.execute(status->{
+            var old=jdbc.queryForList("select calendar_id from calendar_google_connections where user_id=? for update",user);
+            if(!old.isEmpty()&&!calendarId.equals(old.getFirst().get("calendar_id")))jdbc.update("update calendar_events set google_id=null,google_etag=null,google_dirty=true where user_id=?",user);
+            jdbc.update("""
+                insert into calendar_google_connections(user_id,refresh_secret,calendar_id,label,connection_id) values (?,?,?,?,?)
+                on conflict(user_id) do update set refresh_secret=excluded.refresh_secret,calendar_id=excluded.calendar_id,label=excluded.label,
+                connection_id=excluded.connection_id,next_sync_at=now(),sync_status='PENDING',connected_at=now()
+                """,user,seal(user,refresh),calendarId,label.substring(0,Math.min(300,label.length())),UUID.randomUUID());return true;
+        }));
+    }
+    public String returnUrl(boolean success) {
+        return frontendUrl.replaceAll("/+$", "") + "/agenda?google="
+            + (success ? "connected" : "error");
+    }
+    public void disconnect(String user){cluster.exclusive("google-calendar:"+user,()->{jdbc.update("update calendar_google_connections set refresh_secret='',sync_status='DISCONNECTED' where user_id=?",user);jdbc.update("delete from calendar_oauth_states where user_id=?",user);return true;});}
+    public void requestSync(String user){if(jdbc.update("update calendar_google_connections set next_sync_at=now(),sync_status='PENDING' where user_id=? and refresh_secret<>''",user)==0)throw error(409,"Conecte o Google primeiro. Sua agenda própria continua disponível.");}
+    /** Enfileira a sincronização automática das 08:00 e 18:00 (Brasília). */
+    public void queueAutomaticSync(){
+        if(!configured())return;
+        jdbc.update("""
+            update calendar_google_connections c
+               set next_sync_at=now(), sync_status='PENDING'
+             where c.refresh_secret<>''
+               and exists(select 1 from auth_accounts a where a.user_id=c.user_id and a.enabled)
+            """);
+    }
+    public void scheduled(){
+        if(!configured())return;
+        var users=jdbc.queryForList("select c.user_id from calendar_google_connections c join auth_accounts a on a.user_id=c.user_id where a.enabled and c.refresh_secret<>'' and c.next_sync_at<=now() order by c.next_sync_at limit 5",String.class);
+        for(String user:users)try{cluster.exclusive("google-calendar:"+user,()->{sync(user);return true;});}catch(RuntimeException ignored){}
+        jdbc.update("delete from calendar_oauth_states where expires_at<now()");
+    }
+    private void sync(String user){
+        var connections=jdbc.queryForList("select * from calendar_google_connections where user_id=? and refresh_secret<>'' and next_sync_at<=now()",user);if(connections.isEmpty())return;
+        jdbc.update("update calendar_google_connections set next_sync_at=now()+interval '10 minutes',sync_status='SYNCING' where user_id=? and next_sync_at<=now()",user);
+        try{
+            var connection=connections.getFirst();var token=token(Map.of("client_id",clientId,"client_secret",clientSecret,"grant_type","refresh_token","refresh_token",open(user,(String)connection.get("refresh_secret"))));String access=string(token,"access_token");

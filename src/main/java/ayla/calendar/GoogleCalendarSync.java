@@ -73,6 +73,16 @@ public class GoogleCalendarSync {
     }
     public void disconnect(String user){cluster.exclusive("google-calendar:"+user,()->{jdbc.update("update calendar_google_connections set refresh_secret='',sync_status='DISCONNECTED' where user_id=?",user);jdbc.update("delete from calendar_oauth_states where user_id=?",user);return true;});}
     public void requestSync(String user){if(jdbc.update("update calendar_google_connections set next_sync_at=now(),sync_status='PENDING' where user_id=? and refresh_secret<>''",user)==0)throw error(409,"Conecte o Google primeiro. Sua agenda própria continua disponível.");}
+    /** Agenda uma atualização para todas as contas conectadas. */
+    public void queueAutomaticSync(){
+        if(!configured())return;
+        jdbc.update("""
+            update calendar_google_connections c
+            set next_sync_at=now(),sync_status='PENDING'
+            from auth_accounts a
+            where a.user_id=c.user_id and a.enabled and c.refresh_secret<>''
+            """);
+    }
     public void scheduled(){
         if(!configured())return;
         var users=jdbc.queryForList("select c.user_id from calendar_google_connections c join auth_accounts a on a.user_id=c.user_id where a.enabled and c.refresh_secret<>'' and c.next_sync_at<=now() order by c.next_sync_at limit 5",String.class);
@@ -81,7 +91,7 @@ public class GoogleCalendarSync {
     }
     private void sync(String user){
         var connections=jdbc.queryForList("select * from calendar_google_connections where user_id=? and refresh_secret<>'' and next_sync_at<=now()",user);if(connections.isEmpty())return;
-        jdbc.update("update calendar_google_connections set next_sync_at=now()+interval '2 minutes',sync_status='SYNCING' where user_id=?",user);
+        jdbc.update("update calendar_google_connections set next_sync_at=now()+interval '10 minutes',sync_status='SYNCING' where user_id=? and next_sync_at<=now()",user);
         try{
             var connection=connections.getFirst();var token=token(Map.of("client_id",clientId,"client_secret",clientSecret,"grant_type","refresh_token","refresh_token",open(user,(String)connection.get("refresh_secret"))));String access=string(token,"access_token");
             String base="/calendars/"+encode((String)connection.get("calendar_id"))+"/events";
@@ -99,10 +109,27 @@ public class GoogleCalendarSync {
             if(!complete)throw new GoogleFailure(429);
             var linked=jdbc.queryForList("select google_id from calendar_events where user_id=? and status='ACTIVE' and not google_dirty and google_id is not null and starts_at>=? and starts_at<?",String.class,user,Timestamp.from(from),Timestamp.from(to));
             for(String id:linked)if(!seen.contains(id)){try{importEvent(user,api("GET",base+"/"+encode(id),access,null,null),List.of());}catch(GoogleFailure failure){if(failure.status==404||failure.status==410)remoteCancel(user,id);else throw failure;}}
-            jdbc.update("update calendar_google_connections c set last_sync_at=now(),sync_status=case when exists(select 1 from calendar_events e where e.user_id=c.user_id and e.google_dirty) then 'PENDING' else 'OK' end where c.user_id=?",user);
+            jdbc.update("""
+                update calendar_google_connections c
+                set last_sync_at=now(),
+                    sync_status=case when c.sync_status='PENDING' or exists(
+                        select 1 from calendar_events e where e.user_id=c.user_id and e.google_dirty
+                    ) then 'PENDING' else 'OK' end,
+                    next_sync_at=case when c.sync_status='PENDING' or exists(
+                        select 1 from calendar_events e where e.user_id=c.user_id and e.google_dirty
+                    ) then now() else 'infinity'::timestamptz end
+                where c.user_id=? and c.refresh_secret<>''
+                """,user);
         }catch(RuntimeException failure){
             String status=failure instanceof GoogleFailure g&&(g.status==400||g.status==401)?"RECONNECT":"RETRYING";
-            jdbc.update("update calendar_google_connections set sync_status=?,next_sync_at=now()+interval '5 minutes' where user_id=?",status,user);
+            jdbc.update("""
+                update calendar_google_connections
+                set sync_status=case when sync_status='PENDING' then 'PENDING' else ? end,
+                    next_sync_at=case when sync_status='PENDING' then now()
+                        when ?='RECONNECT' then 'infinity'::timestamptz
+                        else now()+interval '5 minutes' end
+                where user_id=? and refresh_secret<>''
+                """,status,status,user);
             org.slf4j.LoggerFactory.getLogger(getClass()).warn("Sincronização Google pendente. tipo={}",failure.getClass().getSimpleName());
         }
     }
