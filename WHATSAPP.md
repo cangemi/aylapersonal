@@ -117,6 +117,10 @@ O `.env` local já recebeu as chaves da integração. Guarde `WHATSAPP_SESSION_K
 
 A instância restaura automaticamente a conexão após reiniciar se estava marcada como conectada. `/disconnect` desativa essa restauração até um novo `/connect`. `/logout` mantém os cadastros de contatos, mas apaga a credencial do WhatsApp.
 
+Compatibilidade das conexões antigas: o modo inicial continua sendo `own` (mesmo número para usuário e Ayla), conforme V42. O registro de instâncias consulta os vínculos existentes por proprietário e função antes de criar outro identificador, preservando o nome RemoteAuth e o backup da sessão antiga. A escolha explícita de número exclusivo é mantida. Durante a restauração, `restoring=true` aparece no status e a tela informa que está restaurando a sessão, em vez de pedir outro pareamento.
+
+Os perfis locais ficam no volume `whatsapp_auth` em `/app/runtime`, além do backup criptografado no PostgreSQL. Um perfil local confirmado como pronto é preservado e pode ser mais recente que o último backup. Ao encerrar uma conexão pronta, o Node tenta gravar um checkpoint mesmo se ainda não existe o primeiro backup, serializa gravações e aguarda sua conclusão antes de destruir o cliente. Ao atualizar uma instalação anterior sem esse volume, copie os arquivos existentes de `/app/runtime` para o volume antes de recriar o container. Isso preserva autenticações ainda válidas; não recupera credenciais já apagadas ou revogadas pelo WhatsApp.
+
 Para executar sem Docker: Node 22+, Chromium/Chrome configurado em `PUPPETEER_EXECUTABLE_PATH`, `npm ci --include=optional` e `npm start` dentro de `agentNode`. Execute apenas uma instância do serviço por `WHATSAPP_CLIENT_ID`.
 
 ## Testes

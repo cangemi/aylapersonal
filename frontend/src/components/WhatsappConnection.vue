@@ -224,16 +224,36 @@ defineExpose({ refresh })
         >
           Conectado · {{ (role === 'ayla' ? status?.ayla : status)?.number }}
         </p>
+        <p
+          v-else-if="(role === 'ayla' ? status?.ayla : status)?.restoring"
+          class="banner info"
+          role="status"
+        >
+          Sua conexão está salva. Estamos restaurando a sessão, sem precisar ler outro QR code.
+        </p>
         <div class="button-row">
           <button
             v-if="!(role === 'ayla' ? status?.ayla : status)?.connected"
             type="button"
             class="button primary"
-            :disabled="busy || sessions[role].busy || sessions[role].loading || !status"
+            :disabled="
+              busy ||
+              sessions[role].busy ||
+              sessions[role].loading ||
+              !status ||
+              (role === 'ayla' ? status?.ayla : status)?.restoring
+            "
             @click="action('connect', role)"
           >
-            <Icon name="phone" :size="17" />{{
-              role === 'ayla' ? 'Conectar número da Ayla' : 'Conectar meu WhatsApp'
+            <Icon
+              :name="(role === 'ayla' ? status?.ayla : status)?.restoring ? 'loading' : 'phone'"
+              :size="17"
+            />{{
+              (role === 'ayla' ? status?.ayla : status)?.restoring
+                ? 'Restaurando conexão…'
+                : role === 'ayla'
+                  ? 'Conectar número da Ayla'
+                  : 'Conectar meu WhatsApp'
             }}
           </button>
           <button
@@ -282,12 +302,21 @@ defineExpose({ refresh })
           v-if="!sessions[role].loaded"
           class="qr-placeholder"
           role="status"
-          :aria-busy="sessions[role].loading"
+          :aria-busy="
+            sessions[role].loading || (role === 'ayla' ? status?.ayla : status)?.restoring || false
+          "
           aria-live="polite"
         >
-          <span v-if="sessions[role].loading" class="qr-loading">
+          <span
+            v-if="sessions[role].loading || (role === 'ayla' ? status?.ayla : status)?.restoring"
+            class="qr-loading"
+          >
             <span class="qr-spinner" aria-hidden="true"></span>
-            <span>Carregando QR code…</span>
+            <span>{{
+              (role === 'ayla' ? status?.ayla : status)?.restoring
+                ? 'Restaurando sua sessão…'
+                : 'Carregando QR code…'
+            }}</span>
           </span>
           <p v-else class="muted">
             {{

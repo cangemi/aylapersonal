@@ -4,7 +4,7 @@ const {InstanceRegistry} = require('../instanceRegistry');
 
 test('each user retains the original instance and gets a separate bounded assistant identity, restored once with its mode', async () => {
     const starts = [], configs = [], saved = new Map();
-    const registry = new InstanceRegistry({config:{ownerId:'owner',instanceId:'original'},pool:{},
+    const registry = new InstanceRegistry({config:{ownerId:'owner',instanceId:'original'},pool:{async query(){return {rows:[]};}},
         createRepository(pool, config) { configs.push(config); return {config}; },
         createStore(pool, config) { return {id:config.instanceId}; },
         createManager({config,store}) {
@@ -31,5 +31,18 @@ test('each user retains the original instance and gets a separate bounded assist
     assert.ok(long.repository.config.instanceId.length <= 64);
     await assert.rejects(registry.get('../owner','ayla'),{status:400});
     await assert.rejects(registry.get('owner','other'),{status:400});
+    await registry.shutdown();
+});
+
+
+test('reuses the saved user and assistant instance identifiers with owner and role isolation',async()=>{
+    const calls=[],configs=[];
+    const registry=new InstanceRegistry({config:{ownerId:'owner',instanceId:'new-default'},pool:{async query(sql,args){calls.push(args);return {rows:[{id:args[1]==='user'?'legacy-user':'legacy-assistant'}]};}},
+        createRepository(pool,config){configs.push(config);return{};},createStore(){return{};},
+        createManager(){return{async start(){},async shutdown(){}};}});
+    await registry.get('owner');await registry.get('owner','ayla');
+    assert.equal(configs[0].instanceId,'legacy-user');assert.equal(configs[1].instanceId,'legacy-assistant');
+    assert.deepEqual(calls.map(args=>args.slice(0,2)),[['owner','user'],['owner','ayla']]);
+    assert.equal(configs[0].connectionRole,'user');
     await registry.shutdown();
 });

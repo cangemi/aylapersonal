@@ -32,8 +32,10 @@ class WhatsappRepository {
         return result.rows[0].enabled===true;
     }
     async state(state, desired, info = {}) {
-        await this.pool.query(`update whatsapp_instances set state=$2,desired_connected=coalesce($3,desired_connected),
-            connected_number=$4,connected_name=$5,last_error=$6,updated_at=CURRENT_TIMESTAMP where id=$1`,
+        await this.pool.query(`update whatsapp_instances set state=$2::varchar,desired_connected=coalesce($3,desired_connected),
+            connected_number=case when $2::varchar='logged_out' then null else coalesce($4::varchar,connected_number) end,
+            connected_name=case when $2::varchar='logged_out' then null else coalesce($5::varchar,connected_name) end,
+            last_error=$6,updated_at=CURRENT_TIMESTAMP where id=$1`,
             [this.config.instanceId, state, desired == null ? null : desired, info.number || null, info.name || null, info.error || null]);
     }
     async savePersonalGroup(chatId) {

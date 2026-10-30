@@ -1,5 +1,6 @@
 const path = require('node:path');
 const { createHash } = require('node:crypto');
+const { databaseAuth } = require('./databaseAuth');
 const { sendVoiceFromPage } = require('./voiceMedia');
 const { createMessageProcessor, formatReply, HEADER } = require('./messageProcessor');
 const { installLiveMessages } = require('./liveMessages');
@@ -16,12 +17,7 @@ const { invocation,readContextFromPage,contextView,COMMAND_TOKEN,normalizeComman
 
 function defaultClient(config, store) {
     const { Client, RemoteAuth } = require('whatsapp-web.js');
-    class DatabaseAuth extends RemoteAuth {
-        async storeRemoteSession(options) {
-            try { await super.storeRemoteSession(options); }
-            catch (error) { this.client.emit('remote_session_error', error); }
-        }
-    }
+    const DatabaseAuth = databaseAuth(RemoteAuth);
     class LiveClient extends Client {
         async inject() {return injectAfterNavigation(() => super.inject(), () => this.pupPage && !this.pupPage.isClosed());}
         async findPersonalGroup() {return this.pupPage.evaluate(findPersonalGroupInPage);}
@@ -81,6 +77,7 @@ class WhatsappManager {
         this.log = logger; this.client = null; this.phase = 'disconnected'; this.qr = null;
         this.queues = new Map(); this.lifecycle = Promise.resolve(); this.reconnectTimer = null;
         this.stopping = false; this.qrVersion = 0;
+        this.restoring = false;
         this.connectionMode = 'own';
         this.assistant = null;
         this.readySince = null;
@@ -105,6 +102,7 @@ class WhatsappManager {
         const ayla = this.connectionMode === 'dedicated' ? await (await this.assistantManager()).status() : null;
         const sameNumber = Boolean(ayla?.connected && this.phase === 'ready' && saved.connected_number === ayla.number);
         return { instanceId: this.config.instanceId, state: this.phase, connected: this.phase === 'ready',
+            restoring: this.restoring && ['connecting','authenticated','reconnecting'].includes(this.phase),
             mode: this.connectionMode, ready: this.integrationActive(), ayla,
             configurationError: sameNumber ? 'Conecte dois números diferentes: o seu e o número exclusivo da Ayla.' : null,
             desiredConnected: saved.desired_connected, number: saved.connected_number, name: saved.connected_name,
@@ -213,13 +211,14 @@ class WhatsappManager {
         const saved = await this.repository.init();
         this.connectionMode = saved.connection_mode || 'own';
         if (this.connectionMode === 'dedicated') await this.assistantManager();
-        if (saved.desired_connected) await this.connect();
+        if (saved.desired_connected || ['ready','authenticated','reconnecting'].includes(saved.state)) await this.connect();
         else await this.repository.state('disconnected', false);
     }
     async connect() {
         return this.control(async () => {
             if (this.client) return this.status();
             this.stopping = false; clearTimeout(this.reconnectTimer);
+            this.restoring = Boolean(await this.store?.sessionExists?.({session:this.store.sessionName}));
             const active = this.clientFactory(this.config, this.store);
             this.client = active; this.phase = 'connecting'; this.qr = null;
             this.readySince = null;
@@ -228,7 +227,9 @@ class WhatsappManager {
                 if (this.client !== active) return;
                 Promise.resolve().then(() => fn(...args)).catch(error => this.log.error('[whatsapp] evento falhou:', error.code || error.name));
             };
+            active.on('auth_session_restoring', observe(async () => { this.restoring = true; }));
             active.on('qr', observe(async raw => {
+                this.restoring = false;
                 const version = ++this.qrVersion;
                 this.phase = 'awaiting_qr'; this.qr = { raw, generatedAt: new Date().toISOString(), image: null, ascii: null };
                 await this.repository.state('awaiting_qr', true);
@@ -249,7 +250,9 @@ class WhatsappManager {
                 // second too, so pre-ready messages can never slip through sync.
                 this.readySince = Math.floor(Date.now() / 1000);
                 this.phase = 'ready'; this.qr = null;
+                this.restoring = false;
                 await this.repository.state('ready', true, { number: active.info?.wid?.user, name: active.info?.pushname });
+                await active.authStrategy?.markReady?.();
                 this.log.log('[whatsapp] conectado; backup inicial da sessão pode levar cerca de um minuto.');
                 if (this.config.connectionRole !== 'ayla' && !this.recoveryTimer && this.processor.recover) {
                     this.recoveryTimer = setInterval(() => { void this.recoverQueuedReplies(); }, 5000);
@@ -267,6 +270,7 @@ class WhatsappManager {
                     this.cancelBuffered();
                     this.readySince = null;
                     this.phase = 'reconnecting';
+                    this.restoring = true;
                 }
                 ++this.connectionEpoch;
                 this.repository.state(this.phase, true).catch(error => this.log.error('[whatsapp] estado não salvo:', error.code || error.name));
@@ -326,8 +330,8 @@ class WhatsappManager {
         if (active) {
             try {
                 if (logout && active.pupPage) await active.logout();
-                else if (this.phase === 'ready' && await this.store.sessionExists({ session: this.store.sessionName }))
-                    await active.authStrategy.storeRemoteSession();
+                else if (this.phase === 'ready')
+                    await active.authStrategy.storeRemoteSession({throwOnError:true});
             } catch (error) { failure = error; }
             finally { await active.destroy().catch(() => {}); }
         }
