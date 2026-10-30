@@ -24,8 +24,11 @@ public class HermesMediaService {
     }
     public String transcribe(String profile,List<ChatAudio> audios) {
         StringBuilder result=new StringBuilder();
-        for(var audio:audios) result.append("\n[Transcrição automática de áudio enviado neste turno; peça esclarecimento se houver ambiguidade]\n")
+        for(var audio:audios) {result.append("\n[Transcrição automática de áudio enviado neste turno; peça esclarecimento se houver ambiguidade]\n")
                 .append(dashboard.transcribe(profile,audio));
+            // Keep completed transcription in this worker when the agent temporarily rejects admission.
+            ayla.chat.queue.ChatJobContext.mediaPrepared();
+        }
         return result.toString();
     }
     public ChatAudio speak(String profile,String text) {

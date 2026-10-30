@@ -184,6 +184,7 @@ public class ChatService {
         if(calendar!=null) body.put("instructions",body.get("instructions")
                 + " Resumo lido AGORA do PostgreSQL. Não mencione agenda sem pedido. Leia localStart/localEnd diretamente; após alterações prevalecem os resultados atuais das ferramentas. "
                 + tools.jackson.databind.json.JsonMapper.builder().build().writeValueAsString(calendar.agentContext(userId,selected.conversationId())));
+        body.put("instructions",body.get("instructions")+" Agilidade na resposta: em conversas simples, responda diretamente em uma a três frases naturais, sem recapitular o histórico nem fazer perguntas de encerramento. Confirme ações em uma frase curta após sucesso real. Desenvolva quando a pergunta ou tarefa exigir detalhes; não omita informações necessárias, links ou esclarecimentos obrigatórios. Agrupe alterações independentes nos lotes das ferramentas quando permitido, preservando consultas e dependências. Não pesquise informações que não fazem parte do pedido atual.");
         var result = client.post(selected.profile(), "/api/sessions/" + session + "/chat", body);
         if (!"completed".equals(result.get("status")))
             throw new HermesException(502, "O Hermes não concluiu a resposta. Consulte os logs do Hermes e tente novamente.");

@@ -49,3 +49,5 @@ docker compose -f compose.yaml -f compose.vps.yaml -f compose.observability.yaml
 Confira também CPU, RAM, reinícios e erros no Grafana. Os limites evitam que a stack consuma toda a VPS, mas não garantem capacidade para qualquer volume de chats, áudio ou contas WhatsApp. Meça esses cenários na ARM real antes de aumentar usuários. A retenção de métricas/logs/traces permanece a definida em `OBSERVABILIDADE.md`; estes limites não impõem um teto conjunto de disco.
 
 Referências: [cgroup_parent no Compose](https://docs.docker.com/reference/compose-file/services/#cgroup_parent), [limites de recursos do systemd](https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html).
+
+A concorrência do overlay pode ser ajustada explicitamente por ORACLE_MAX_CONCURRENT_CHATS (padrão 2 por réplica, 4 pedidos com duas réplicas). O MAX_CONCURRENT_CHATS genérico da configuração local não aumenta silenciosamente esse limite da Oracle. Aumentar esse parâmetro não acrescenta CPU ou RAM; medir consumo e fila antes de elevar em produção.

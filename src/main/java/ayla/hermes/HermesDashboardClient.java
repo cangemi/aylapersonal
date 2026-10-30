@@ -13,6 +13,7 @@ import ayla.chat.dto.ChatAudio;
 @Component
 public class HermesDashboardClient {
     private final HttpClient client;
+    private final ProfileVoiceLocks voiceLocks=new ProfileVoiceLocks();
     private final CookieManager cookies=new CookieManager(null,CookiePolicy.ACCEPT_ALL);
     private final JsonMapper json=JsonMapper.builder().build();
     private final String baseUrl, username, password, dataHome;
@@ -71,18 +72,23 @@ public class HermesDashboardClient {
             throw new HermesException(503,"A transcrição deve estar configurada como local no Hermes.");
         return text.strip();
     }
-    public synchronized ChatAudio speak(String profile,String text,VoiceSettings settings) {
-        if(cluster!=null)return cluster.exclusive("voice:"+profile,()->speakConfigured(profile,text,settings));
-        return speakConfigured(profile,text,settings);
+    public ChatAudio speak(String profile,String text,VoiceSettings settings) {
+        return voiceOperation(profile,()->speakConfigured(profile,text,settings));
+    }
+    private ChatAudio voiceOperation(String profile,java.util.function.Supplier<ChatAudio> work){
+        return voiceLocks.run(profile,()->cluster==null?work.get():cluster.exclusive("voice:"+profile,work));
     }
     private ChatAudio speakConfigured(String profile,String text,VoiceSettings settings){
         // Native config is merged, not replaced. Reapply the database source of truth after restarts.
         var result=call("PUT","/api/config"+profileQuery(profile),Map.of("config",Map.of("tts",
                 Map.of("provider","edge","edge",Map.of("voice",settings.voice(),"speed",settings.speed(),"pitch",settings.edgePitch())))),false);
         if(!Boolean.TRUE.equals(result.get("ok"))) throw new HermesException(503,"Não consegui aplicar a configuração de voz no Hermes.");
-        return speak(profile,text);
+        return synthesize(profile,text);
     }
-    public synchronized ChatAudio speak(String profile,String text) {
+    public ChatAudio speak(String profile,String text) {
+        return voiceOperation(profile,()->synthesize(profile,text));
+    }
+    private ChatAudio synthesize(String profile,String text) {
         var result=call("POST","/api/audio/speak"+profileQuery(profile),Map.of("text",text),false);
         return audioResult(result);
     }

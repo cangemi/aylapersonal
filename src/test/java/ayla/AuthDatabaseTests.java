@@ -246,9 +246,13 @@ class AuthDatabaseTests {
     }
     @Test void rotatesTokensDetectsReplayAndImmediatelyRevokesLogoutAndExpiredAccess() throws Exception {
         var first=owner();
+        assertThat(first.expiresIn()).isEqualTo(86400);
+        var persistedExpiry=jdbc.queryForObject("select access_expires_at from auth_sessions where access_hash=?",java.sql.Timestamp.class,AuthService.hash(first.accessToken()));
+        assertThat(persistedExpiry.toInstant()).isCloseTo(first.accessExpiresAt(),org.assertj.core.api.Assertions.within(1,java.time.temporal.ChronoUnit.MILLIS));
         var response=api.perform(post("/api/v1/auth/refresh").contentType("application/json").content(json.writeValueAsString(Map.of("refreshToken",first.refreshToken()))))
                 .andExpect(status().isOk()).andReturn();
         var next=json.readValue(response.getResponse().getContentAsString(),Tokens.class);
+        assertThat(next.expiresIn()).isEqualTo(86400);
         assertThat(next.accessToken()).isNotEqualTo(first.accessToken());
         api.perform(get("/api/v1/auth/me").header("Authorization","Bearer "+first.accessToken())).andExpect(status().isUnauthorized());
         api.perform(get("/api/v1/auth/me").header("Authorization","Bearer "+next.accessToken())).andExpect(status().isOk());

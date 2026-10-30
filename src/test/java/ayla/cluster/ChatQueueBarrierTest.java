@@ -11,10 +11,16 @@ class ChatQueueBarrierTest {
         try(var context=new ChatJobContext(marked::incrementAndGet,cleared::incrementAndGet)){
             ChatJobContext.beforeInference();assertThat(context.dispatched()).isTrue();
             ChatJobContext.admissionRejected();assertThat(context.dispatched()).isFalse();
+            assertThat(ChatJobContext.safeToRequeue()).isTrue();
             ChatJobContext.beforeInference();ChatJobContext.inferenceAccepted();
             ChatJobContext.admissionRejected();assertThat(context.dispatched()).isTrue();
+            assertThat(ChatJobContext.safeToRequeue()).isFalse();
             assertThat(marked.get()).isEqualTo(2);assertThat(cleared.get()).isEqualTo(1);
         }
         assertThat(ChatJobContext.active()).isFalse();
+        try(var context=new ChatJobContext(()->{})){
+            ChatJobContext.mediaPrepared();ChatJobContext.beforeInference();ChatJobContext.admissionRejected();
+            assertThat(ChatJobContext.safeToRequeue()).isFalse();
+        }
     }
 }

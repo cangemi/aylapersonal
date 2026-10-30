@@ -28,3 +28,13 @@ O conteúdo e anexos necessários ficam no banco enquanto o pedido aguarda. Ao t
 O Monitoramento registra a execução final como operação `JOB`, sem mensagens/anexos. Consultas de status bem-sucedidas não poluem o histórico de ações. Tokens continuam sendo registrados pelas respostas do Hermes e seguem a retenção própria de dois meses.
 
 Ativação: aplique a V31 pela API Java antes de atualizar os clientes WhatsApp/frontend. Faça backup consistente do banco antes das migrações. Preserve volumes de PostgreSQL e WhatsApp. As imagens e o código do cliente devem ser implantados com essa versão da API.
+
+## Agilidade da fila e das respostas
+
+O agendador de 500 ms continua como recuperação. Pedidos novos acionam o despacho imediatamente após o commit, e a liberação de uma vaga também acorda a fila. Isso reduz a espera artificial entre atendimentos; não altera o FIFO por conversa nem o limite de concorrência.
+
+HTTP 429 do gateway antes de qualquer inferência aceita devolve o pedido à fila, liberando vaga e conexão do banco para outras conversas. Contenção usa espera curta de 1–3 s; indisponibilidade de infraestrutura mantém o backoff progressivo. Após uma inferência aceita ou resultado incerto, não se reinicia o pedido inteiro nem se repete lançamento financeiro.
+
+A verificação de existência de sessões Hermes usa metadados em memória por até 30 s, separados por perfil e sessão, com invalidação em exclusão/404. Não há cache de respostas, financeiro, estoque ou agenda. A autenticação das chamadas reais continua sendo validada. A voz usa trava local por perfil e mantém coordenação entre réplicas, permitindo perfis diferentes em paralelo e impedindo mistura de configurações.
+
+Respostas simples recebem orientação de 1–3 frases, com detalhes completos quando necessários. Não há garantia de redução percentual: a geração no provedor gratuito, ferramentas, mídia e limites externos continuam influenciando o tempo. Não foram executados testes nem carga; os testes de proteção foram escritos e a API compilada.

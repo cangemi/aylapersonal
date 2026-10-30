@@ -17,7 +17,7 @@ import ayla.chat.session.ChatUserRepository;
 
 @Service
 public class AuthService {
-    private static final long ACCESS_SECONDS=900,REFRESH_SECONDS=30L*86400;
+    private static final long ACCESS_SECONDS=24L*60*60,REFRESH_SECONDS=30L*86400;
     private final JdbcTemplate jdbc;
     private final UserProfileService profiles;
     private final ChatUserRepository users;

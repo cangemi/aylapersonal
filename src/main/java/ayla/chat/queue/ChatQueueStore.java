@@ -92,12 +92,14 @@ public class ChatQueueStore {
                 where id=? and lease_token=? and status in ('RUNNING','NEEDS_REVIEW')
                 """,status,status,result==null?null:json.writeValueAsString(result),notice,work.id(),work.token());
     }
-    public void waitAgain(Work work){
+    public void waitAgain(Work work){waitAgain(work,(int)Math.min(60,2L*work.attempts()));}
+    public void waitAgain(Work work,int delaySeconds){
+        if(delaySeconds<1||delaySeconds>60)throw new IllegalArgumentException("Invalid retry delay");
         jdbc.update("""
                 update chat_jobs set status='QUEUED',lease_until=null,lease_token=null,dispatched_at=null,
                   available_at=now()+(? * interval '1 second'),notice='Aguardando disponibilidade da Ayla. Seu pedido continua salvo na fila.'
                 where id=? and lease_token=? and status='RUNNING' and dispatched_at is null
-                """,Math.min(60,2L*work.attempts()),work.id(),work.token());
+                """,delaySeconds,work.id(),work.token());
     }
     public void heartbeat(Work work){jdbc.update("update chat_jobs set lease_until=now()+interval '2 minutes' where id=? and lease_token=? and status='RUNNING'",work.id(),work.token());}
     public void recover(){

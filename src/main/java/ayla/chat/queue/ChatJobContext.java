@@ -7,10 +7,13 @@ public final class ChatJobContext implements AutoCloseable {
     private final Runnable rejected;
     private boolean dispatched;
     private boolean accepted;
+    private boolean preparedMedia;
     public ChatJobContext(Runnable barrier){this(barrier,()->{});}
     public ChatJobContext(Runnable barrier,Runnable rejected){this.barrier=barrier;this.rejected=rejected;CURRENT.set(this);}
     public boolean dispatched(){return dispatched;}
     public static boolean active(){return CURRENT.get()!=null;}
+    public static boolean safeToRequeue(){var scope=CURRENT.get();return scope!=null&&!scope.accepted&&!scope.dispatched&&!scope.preparedMedia;}
+    public static void mediaPrepared(){var scope=CURRENT.get();if(scope!=null)scope.preparedMedia=true;}
     public static void beforeInference(){
         var scope=CURRENT.get();
         if(scope!=null&&!scope.dispatched){scope.barrier.run();scope.dispatched=true;}

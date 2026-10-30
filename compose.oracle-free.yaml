@@ -7,7 +7,7 @@ services:
     cgroup_parent: ayla.slice
     environment:
       DB_POOL_SIZE: '8'
-      MAX_CONCURRENT_CHATS: '2'
+      MAX_CONCURRENT_CHATS: ${ORACLE_MAX_CONCURRENT_CHATS:-2}
       JAVA_TOOL_OPTIONS: '-XX:MaxRAMPercentage=55 -XX:+ExitOnOutOfMemoryError'
     deploy:
       replicas: 2

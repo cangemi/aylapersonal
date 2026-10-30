@@ -22,6 +22,14 @@ public class HermesClient {
     private final SimpleClientHttpRequestFactory requestFactory;
     @org.springframework.beans.factory.annotation.Autowired
     void observe(RestClient.Builder builder){client=builder.clone().baseUrl(baseUrl).requestFactory(requestFactory).observationConvention(new ayla.monitoring.SafeClientObservation()).build();}
+    private record SessionKey(String profile,String id) {}
+    private final java.util.concurrent.ConcurrentMap<SessionKey,Long> knownSessions=new java.util.concurrent.ConcurrentHashMap<>();
+    private static final long SESSION_TTL=java.util.concurrent.TimeUnit.SECONDS.toNanos(30);
+    private void rememberSession(SessionKey session){
+        long now=System.nanoTime();
+        if(knownSessions.size()>=1024)knownSessions.entrySet().removeIf(entry->entry.getValue()<=now);
+        if(knownSessions.size()<1024)knownSessions.put(session,now+SESSION_TTL);
+    }
     private final String key;
     private final org.springframework.core.env.Environment environment;
 
@@ -64,11 +72,23 @@ public class HermesClient {
     public Map<String, Object> post(String path, Map<String, Object> body) { return exchange("default", path, body); }
     public Map<String, Object> get(String profile, String path) { return exchange(profile, path, null); }
     public Map<String, Object> post(String profile, String path, Map<String, Object> body) { return exchange(profile, path, body); }
-    public Map<String,Object> delete(String profile,String path) {return exchange(profile,path,null,org.springframework.http.HttpMethod.DELETE);}
+    public Map<String,Object> delete(String profile,String path) {
+        forgetSession(profile,path);
+        return exchange(profile,path,null,org.springframework.http.HttpMethod.DELETE);
+    }
+    private void forgetSession(String profile,String path){
+        if(path.startsWith("/api/sessions/")){
+            String id=path.substring("/api/sessions/".length()).split("/",2)[0];
+            knownSessions.remove(new SessionKey(profile,id));
+        }
+    }
 
     public void ensureSession(String profile, String id, Map<String, Object> creation) {
+        var session=new SessionKey(profile,id);
+        Long expires=knownSessions.get(session);
+        if(expires!=null&&expires>System.nanoTime())return;
         String path = "/api/sessions/" + id;
-        try { get(profile, path); return; }
+        try { get(profile, path); rememberSession(session); return; }
         catch (HermesException e) { if (e.status() != 404) throw e; }
         try { post(profile, "/api/sessions", creation); }
         catch (HermesException e) {
@@ -76,6 +96,7 @@ public class HermesClient {
             if (e.status() != 409) throw e;
             get(profile, path);
         }
+        rememberSession(session);
     }
 
     private Map<String, Object> exchange(String profile, String path, Map<String, Object> body) {
@@ -111,11 +132,17 @@ public class HermesClient {
                     if(rejected.getStatusCode().value()!=429 || body==null || !path.endsWith("/chat")
                             || !ayla.chat.queue.ChatJobContext.active())throw rejected;
                     ayla.chat.queue.ChatJobContext.admissionRejected();
+                    if(ayla.chat.queue.ChatJobContext.safeToRequeue()){
+                        usageStatus=429;
+                        throw new ayla.cluster.OperationBusyException(429,"Aguardando disponibilidade da Ayla.");
+                    }
                     try {Thread.sleep(5000);}catch(InterruptedException interrupted){Thread.currentThread().interrupt();throw new HermesException(503,"Processamento interrompido.");}
                 }
             }
             if (result == null && method==org.springframework.http.HttpMethod.DELETE) result=Map.of();
             if (result == null) throw new HermesException(502, "O Hermes retornou uma resposta vazia.");
+            if(body!=null && path.matches("/api/sessions/[A-Za-z0-9_-]+/chat") && "completed".equals(result.get("status")))
+                rememberSession(new SessionKey(profile,path.substring("/api/sessions/".length(),path.length()-"/chat".length())));
             usageResponse=result;
             usageStatus="completed".equals(result.get("status"))?200:502;
             log.info("Hermes operacao={} tempoMs={} resultado={}", path.split("\\?")[0], (System.nanoTime() - started) / 1_000_000,
@@ -126,8 +153,10 @@ public class HermesClient {
             usageStatus=status;
             // Do not log bodies or exception messages: they may contain tokens or conversation data.
             log.warn("Hermes operacao={} httpStatus={}", path.split("\\?")[0], status);
-            if (status == 404 && path.startsWith("/api/sessions/"))
+            if (status == 404 && path.startsWith("/api/sessions/")){
+                forgetSession(profile,path);
                 throw new HermesException(404, "Conversa não encontrada no Hermes. Inicie outra sem sessionId.");
+            }
             if (status == 401 || status == 403)
                 throw new HermesException(503, "O Hermes recusou a autenticação. Verifique HERMES_API_SERVER_KEY e o login Nous no Hermes.");
             if (status == 429) throw new HermesException(429, "O Hermes atingiu o limite de uso. Tente novamente mais tarde.");

@@ -23,6 +23,7 @@ public class ChatQueueService {
     private final ConversationService conversations;
     private final ChatService chat;
     private final Semaphore slots;
+    private final java.util.concurrent.atomic.AtomicBoolean wakeQueued=new java.util.concurrent.atomic.AtomicBoolean();
     private final ExecutorService executor=Executors.newVirtualThreadPerTaskExecutor();
     private final ConcurrentMap<UUID,ChatQueueStore.Work> active=new ConcurrentHashMap<>();
     private ayla.hermes.HermesClient hermes;
@@ -48,7 +49,17 @@ public class ChatQueueService {
         var selection=conversations.resolve(user,request.conversationId(),request.sessionId());
         var bound=new ChatRequest(request.message(),null,selection.conversationId().toString(),request.searchRequired(),request.images(),request.audios(),request.audioReply(),request.documents(),request.whatsappContext());
         UUID id=store.insert(user,selection.conversationId(),requestKey,fingerprint,source,whatsappChat,bound);
+        if(org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()){
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(new org.springframework.transaction.support.TransactionSynchronization(){
+                @Override public void afterCommit(){wake();}
+            });
+        }else wake();
         return store.get(user,id,whatsappChat);
+    }
+    private void wake(){
+        if(!wakeQueued.compareAndSet(false,true))return;
+        try{executor.execute(()->{wakeQueued.set(false);dispatch();});}
+        catch(RejectedExecutionException stopped){wakeQueued.set(false);}
     }
     @Scheduled(fixedDelay=500,initialDelay=1000)
     public void dispatch(){
@@ -77,7 +88,10 @@ public class ChatQueueService {
             } catch(RuntimeException error){
                 boolean temporary=error instanceof ayla.cluster.OperationBusyException
                         || error instanceof HermesException h && Set.of(429,503).contains(h.status());
-                if(!context.dispatched()&&temporary)store.waitAgain(work);
+                if(!context.dispatched()&&temporary){
+                    if(error instanceof ayla.cluster.OperationBusyException)store.waitAgain(work,1+Math.floorMod(work.id().hashCode(),3));
+                    else store.waitAgain(work);
+                }
                 else {store.finish(work,context.dispatched()?"NEEDS_REVIEW":"FAILED",null,
                         context.dispatched()?"Não consegui confirmar a conclusão. Não repeti sua solicitação; confira se a alteração já ocorreu antes de reenviar."
                         :"Não consegui processar esse pedido. Confira os dados enviados e a configuração da Ayla.");
@@ -87,7 +101,7 @@ public class ChatQueueService {
         } catch(RuntimeException error){
             // A failed database write leaves the lease for recovery, never repeats an uncertain inference.
             org.slf4j.LoggerFactory.getLogger(getClass()).warn("Fila de conversa aguardando recuperação. tipo={}",error.getClass().getSimpleName());
-        } finally {SecurityContextHolder.clearContext();org.slf4j.MDC.remove("requestId");active.remove(work.id());slots.release();}
+        } finally {SecurityContextHolder.clearContext();org.slf4j.MDC.remove("requestId");active.remove(work.id());slots.release();wake();}
     }
     private void event(ChatQueueStore.Work work,long started,int status,RuntimeException error){
         if(monitoring==null)return;
