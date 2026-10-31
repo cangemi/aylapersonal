@@ -596,71 +596,78 @@ onBeforeUnmount(() => {
       </p>
     </section>
     <section class="panel google-calendar-card">
-      <span class="stat-icon lavender"><Icon name="calendar" /></span>
-      <div class="google-calendar-copy">
-        <h2>Google Agenda</h2>
-        <p v-if="!connections.length">
-          Sua agenda funciona por aqui. Se quiser, conecte o Google para manter seus compromissos
-          nos dois lugares.
-        </p>
-        <ul v-else class="google-account-list">
-          <li v-for="account in connections" :key="account.connectionId" class="google-account">
-            <div class="google-account-info">
-              <strong>{{ account.label }}</strong>
-              <span class="tag lavender">{{ statusLabel(account.syncStatus) }}</span>
-              <p v-if="account.lastSyncAt" class="footnote">
-                Última atualização: {{ new Date(account.lastSyncAt).toLocaleString('pt-BR') }}
-              </p>
-            </div>
-            <div class="google-account-actions">
-              <label class="google-account-toggle">
-                <input
-                  type="checkbox"
-                  :checked="account.canSchedule"
-                  :disabled="toggling[account.connectionId]"
-                  @change="toggleCanSchedule(account)"
-                />Ayla pode registrar
-              </label>
-              <button class="text-link" @click="disconnectOne(account)">Desconectar</button>
-            </div>
-          </li>
-        </ul>
-        <p v-if="!google.configured" class="footnote muted">
-          A conexão Google ainda não foi habilitada. Sua agenda própria já está pronta.
-        </p>
+      <div class="google-calendar-head">
+        <span class="stat-icon lavender"><Icon name="calendar" /></span>
+        <div class="google-calendar-title">
+          <h2>Google Agenda</h2>
+          <p class="muted">
+            {{
+              connections.length
+                ? connections.length === 1
+                  ? '1 conta conectada.'
+                  : connections.length + ' contas conectadas.'
+                : 'Conecte suas contas Google para seus compromissos ficarem nos dois lugares.'
+            }}
+          </p>
+        </div>
+        <div class="button-row">
+          <button
+            class="button secondary"
+            :disabled="!google.configured || connecting"
+            title="Abre o site do Google para autorizar a conexão"
+            @click="connect"
+          >
+            <Icon name="calendar" :size="17" />{{
+              connections.length ? 'Adicionar conta' : 'Conectar Google'
+            }}<Icon name="external" :size="17" /><span class="sr-only">
+              (abre a autorização no site do Google)</span
+            ></button
+          ><button
+            v-if="connections.length"
+            class="button secondary"
+            :disabled="syncRequesting || google.syncStatus === 'SYNCING'"
+            :aria-busy="syncRequesting || google.syncStatus === 'SYNCING'"
+            @click="sync"
+          >
+            <Icon
+              :name="syncRequesting || google.syncStatus === 'SYNCING' ? 'loading' : 'refresh'"
+              :size="16"
+            />
+            {{
+              syncRequesting
+                ? 'Solicitando…'
+                : google.syncStatus === 'SYNCING'
+                  ? 'Sincronizando…'
+                  : 'Sincronizar agora'
+            }}
+          </button>
+        </div>
       </div>
-      <div class="button-row">
-        <button
-          class="button secondary"
-          :disabled="!google.configured || connecting"
-          title="Abre o site do Google para autorizar a conexão"
-          @click="connect"
-        >
-          <Icon name="calendar" :size="17" />{{
-            connections.length ? 'Adicionar conta' : 'Conectar Google'
-          }}<Icon name="external" :size="17" /><span class="sr-only">
-            (abre a autorização no site do Google)</span
-          ></button
-        ><button
-          v-if="connections.length"
-          class="button secondary"
-          :disabled="syncRequesting || google.syncStatus === 'SYNCING'"
-          :aria-busy="syncRequesting || google.syncStatus === 'SYNCING'"
-          @click="sync"
-        >
-          <Icon
-            :name="syncRequesting || google.syncStatus === 'SYNCING' ? 'loading' : 'refresh'"
-            :size="16"
-          />
-          {{
-            syncRequesting
-              ? 'Solicitando…'
-              : google.syncStatus === 'SYNCING'
-                ? 'Sincronizando…'
-                : 'Sincronizar agora'
-          }}
-        </button>
-      </div>
+      <ul v-if="connections.length" class="google-account-list">
+        <li v-for="account in connections" :key="account.connectionId" class="google-account">
+          <div class="google-account-info">
+            <strong>{{ account.label }}</strong>
+            <span class="tag lavender">{{ statusLabel(account.syncStatus) }}</span>
+            <p v-if="account.lastSyncAt" class="footnote">
+              Última atualização: {{ new Date(account.lastSyncAt).toLocaleString('pt-BR') }}
+            </p>
+          </div>
+          <div class="google-account-actions">
+            <label class="google-account-toggle">
+              <input
+                type="checkbox"
+                :checked="account.canSchedule"
+                :disabled="toggling[account.connectionId]"
+                @change="toggleCanSchedule(account)"
+              />Ayla pode registrar
+            </label>
+            <button class="text-link" @click="disconnectOne(account)">Desconectar</button>
+          </div>
+        </li>
+      </ul>
+      <p v-if="!google.configured" class="footnote muted">
+        A conexão Google ainda não foi habilitada. Sua agenda própria já está pronta.
+      </p>
     </section>
   </div>
   <section v-if="notifications.length" class="panel calendar-notifications" aria-label="Lembretes">

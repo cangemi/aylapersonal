@@ -40,13 +40,21 @@
 }
 .google-calendar-card {
   grid-area: google;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 16px;
-  align-items: center;
+  display: block;
 }
-.google-calendar-copy {
+.google-calendar-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.google-calendar-title {
   min-width: 0;
+  flex: 1 1 220px;
+}
+.google-calendar-title p {
+  margin: 2px 0 0;
+  font-size: 12px;
 }
 .month-card,
 .google-calendar-card,
@@ -127,30 +135,32 @@
 }
 .google-calendar-card .button-row {
   flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 0;
+  gap: 10px;
+  margin: 0 0 0 auto;
   justify-content: flex-end;
 }
 .google-account-list {
   list-style: none;
-  margin: 8px 0 0;
+  margin: 16px 0 0;
   padding: 0;
   display: grid;
   gap: 10px;
 }
 .google-account {
-  display: grid;
-  gap: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
   border: 1px solid var(--line);
   border-radius: 12px;
-  padding: 12px;
+  padding: 14px 16px;
 }
 .google-account-info {
   min-width: 0;
 }
 .google-account-info strong {
   display: block;
-  font-size: 13px;
+  font-size: 14px;
   overflow-wrap: anywhere;
 }
 .google-account-info .tag {
@@ -162,9 +172,8 @@
 .google-account-actions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
+  gap: 16px;
+  flex-shrink: 0;
 }
 .google-account-toggle {
   display: inline-flex;
@@ -173,9 +182,24 @@
   font-size: 12px;
   color: var(--muted);
   cursor: pointer;
+  white-space: nowrap;
 }
 .google-account-toggle input {
   accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+}
+@media (max-width: 560px) {
+  .google-account {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .google-account-actions {
+    width: 100%;
+    justify-content: space-between;
+    gap: 10px;
+  }
 }
 .calendar-agenda-heading h2 {
   font-size: 20px;
@@ -382,12 +406,12 @@
   .calendar-days {
     grid-template-rows: 28px repeat(6, 44px);
   }
-  .google-calendar-card {
-    grid-template-columns: auto minmax(0, 1fr);
-    gap: 12px;
+  .google-calendar-head {
+    flex-wrap: wrap;
   }
   .google-calendar-card .button-row {
-    grid-column: 1 / -1;
+    width: 100%;
+    margin-left: 0;
     justify-content: flex-start;
   }
   .month-card,

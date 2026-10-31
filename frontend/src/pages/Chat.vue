@@ -75,6 +75,9 @@ let recorder,
 let historyRequest = 0
 let selectionRequest = 0
 const messages = computed(() => transcripts[active.value] || [])
+const activeTitle = computed(
+  () => conversations.value.find((c) => c.conversationId === active.value)?.title || 'Nova conversa',
+)
 const owner = auth.session?.user?.id
 const markdown = (value) => {
   const content = document.createElement('template')
@@ -558,14 +561,14 @@ function keydown(event) {
     <section class="chat-main">
       <div class="chat-header">
         <button
-          class="icon-button mobile-chat-action"
+          class="icon-button mobile-chat-action conversation-picker-button"
           aria-label="Escolher conversa"
           @click="conversationPicker = true"
         >
-          <Icon name="chat" />
+          <Icon name="chat" /><span>Conversas</span>
         </button>
         <img class="ayla-avatar" src="/ayla-chat.png" alt="" width="256" height="225" />
-        <div><strong>Ayla</strong><small>Sua assistente, do seu jeito.</small></div>
+        <div><strong>Ayla</strong><small>{{ activeTitle }}</small></div>
         <span class="tag lavender">Vamos conversar</span>
         <button
           class="icon-button mobile-chat-action chat-new-button"
