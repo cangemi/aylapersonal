@@ -11,6 +11,7 @@ import java.security.SecureRandom;
 import javax.crypto.*;
 import javax.crypto.spec.*;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -25,8 +26,8 @@ public class GoogleCalendarSync {
     private final JsonMapper json=JsonMapper.builder().build();private final SecureRandom random=new SecureRandom();
     private final HttpClient http=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
     private static final String API="https://www.googleapis.com/calendar/v3";
-    private static class GoogleFailure extends RuntimeException {final int status;GoogleFailure(int status){super("Google Calendar unavailable");this.status=status;}}
-    public GoogleCalendarSync(JdbcTemplate jdbc,CalendarService calendar,ayla.cluster.ClusterOperations cluster,PlatformTransactionManager manager,
+    public static class GoogleFailure extends RuntimeException {final int status;public GoogleFailure(int status){super("Google Calendar unavailable");this.status=status;}}
+    public GoogleCalendarSync(JdbcTemplate jdbc,@Lazy CalendarService calendar,ayla.cluster.ClusterOperations cluster,PlatformTransactionManager manager,
             @Value("${ayla.calendar.google.client-id:}") String clientId,@Value("${ayla.calendar.google.client-secret:}") String clientSecret,
             @Value("${ayla.calendar.google.redirect-uri:http://localhost:8080/api/v1/calendar/google/callback}") String redirect,
             @Value("${ayla.calendar.encryption-key:}") String encryptionKey,
@@ -36,9 +37,9 @@ public class GoogleCalendarSync {
     }
     boolean configured(){return !clientId.isBlank()&&!clientSecret.isBlank()&&encryptionKey.length==32;}
     public Map<String,Object> status(String user){
-        var rows=jdbc.queryForList("select label,refresh_secret<>' ' and refresh_secret<>'' as connected,last_sync_at,sync_status from calendar_google_connections where user_id=?",user);
-        var value=new LinkedHashMap<String,Object>();value.put("configured",configured());value.put("connected",false);value.put("syncWindow","Google: últimos 30 dias e próximos 24 meses; eventos locais são enviados independentemente desse período.");
-        if(!rows.isEmpty()){value.putAll(rows.getFirst());Object instant=value.remove("last_sync_at");value.put("lastSyncAt",instant);value.put("syncStatus",value.remove("sync_status"));}
+        var rows=jdbc.queryForList("select label,refresh_secret<>' ' and refresh_secret<>'' as connected,last_sync_at,sync_status from calendar_google_connections where user_id=? and refresh_secret<>''",user);
+        var value=new LinkedHashMap<String,Object>();value.put("configured",configured());value.put("connected",false);value.put("connections",rows.size());value.put("syncWindow","Google: últimos 30 dias e próximos 24 meses; eventos locais são enviados independentemente desse período.");
+        if(!rows.isEmpty()){value.put("connected",true);value.putAll(rows.getFirst());Object instant=value.remove("last_sync_at");value.put("lastSyncAt",instant);value.put("syncStatus",value.remove("sync_status"));}
         return value;
     }
     public String connect(String user){
@@ -58,13 +59,14 @@ public class GoogleCalendarSync {
         var meta=api("GET","/calendars/primary",string(tokens,"access_token"),null,null);
         String calendarId=string(meta,"id"),label=string(meta,"summary");if(calendarId.isBlank())throw error(503,"Não consegui identificar a agenda Google.");
         cluster.exclusive("google-calendar:"+user,()->tx.execute(status->{
-            var old=jdbc.queryForList("select calendar_id from calendar_google_connections where user_id=? for update",user);
-            if(!old.isEmpty()&&!calendarId.equals(old.getFirst().get("calendar_id")))jdbc.update("update calendar_events set google_id=null,google_etag=null,google_dirty=true where user_id=?",user);
+            var existing=jdbc.queryForList("select connection_id from calendar_google_connections where user_id=? and calendar_id=? for update",user,calendarId);
+            String connectionId=existing.isEmpty()?UUID.randomUUID().toString():existing.getFirst().get("connection_id").toString();
+            if(!existing.isEmpty())jdbc.update("update calendar_events set google_id=null,google_etag=null,google_dirty=true where user_id=?",user);
             jdbc.update("""
-                insert into calendar_google_connections(user_id,refresh_secret,calendar_id,label,connection_id) values (?,?,?,?,?)
-                on conflict(user_id) do update set refresh_secret=excluded.refresh_secret,calendar_id=excluded.calendar_id,label=excluded.label,
-                connection_id=excluded.connection_id,next_sync_at=now(),sync_status='PENDING',connected_at=now()
-                """,user,seal(user,refresh),calendarId,label.substring(0,Math.min(300,label.length())),UUID.randomUUID());return true;
+                insert into calendar_google_connections(user_id,refresh_secret,calendar_id,label,connection_id,can_schedule) values (?,?,?,?,?,false)
+                on conflict(user_id,calendar_id) do update set refresh_secret=excluded.refresh_secret,label=excluded.label,
+                next_sync_at=now(),sync_status='PENDING',connected_at=now()
+                """,user,seal(user,refresh),calendarId,label.substring(0,Math.min(300,label.length())),connectionId);return true;
         }));
     }
     public String returnUrl(boolean success) {
@@ -72,6 +74,38 @@ public class GoogleCalendarSync {
             + (success ? "connected" : "error");
     }
     public void disconnect(String user){cluster.exclusive("google-calendar:"+user,()->{jdbc.update("update calendar_google_connections set refresh_secret='',sync_status='DISCONNECTED' where user_id=?",user);jdbc.update("delete from calendar_oauth_states where user_id=?",user);return true;});}
+    public List<Map<String,Object>> listConnections(String user){
+        var rows=jdbc.queryForList("""
+            select connection_id,label,calendar_id,can_schedule,last_sync_at,sync_status,
+                   refresh_secret<>'' as connected
+            from calendar_google_connections 
+            where user_id=? and refresh_secret<>''
+            order by connected_at desc
+            """,user);
+        var result=new ArrayList<Map<String,Object>>();
+        for(var row:rows){
+            var item=new LinkedHashMap<String,Object>();
+            item.put("connectionId",String.valueOf(row.get("connection_id")));
+            item.put("label",row.get("label"));
+            item.put("calendarId",row.get("calendar_id"));
+            item.put("canSchedule",row.get("can_schedule"));
+            item.put("connected",row.get("connected"));
+            item.put("lastSyncAt",row.get("last_sync_at"));
+            item.put("syncStatus",row.get("sync_status"));
+            result.add(item);
+        }
+        return result;
+    }
+    public void updateCanSchedule(String user,String connectionId,boolean canSchedule){
+        int updated=jdbc.update("update calendar_google_connections set can_schedule=? where user_id=? and connection_id=?::uuid",canSchedule,user,connectionId);
+        if(updated==0)throw error(404,"Conexão não encontrada.");
+    }
+    public void disconnectConnection(String user,String connectionId){
+        cluster.exclusive("google-calendar:"+user,()->{
+            jdbc.update("update calendar_google_connections set refresh_secret='',sync_status='DISCONNECTED' where user_id=? and connection_id=?::uuid",user,connectionId);
+            return true;
+        });
+    }
     public void requestSync(String user){if(jdbc.update("update calendar_google_connections set next_sync_at=now(),sync_status='PENDING' where user_id=? and refresh_secret<>''",user)==0)throw error(409,"Conecte o Google primeiro. Sua agenda própria continua disponível.");}
     /** Agenda uma atualização para todas as contas conectadas. */
     public void queueAutomaticSync(){
@@ -89,37 +123,34 @@ public class GoogleCalendarSync {
         for(String user:users)try{cluster.exclusive("google-calendar:"+user,()->{sync(user);return true;});}catch(RuntimeException ignored){}
         jdbc.update("delete from calendar_oauth_states where expires_at<now()");
     }
-    private void sync(String user){
+    public void sync(String user){
         var connections=jdbc.queryForList("select * from calendar_google_connections where user_id=? and refresh_secret<>'' and next_sync_at<=now()",user);if(connections.isEmpty())return;
-        jdbc.update("update calendar_google_connections set next_sync_at=now()+interval '10 minutes',sync_status='SYNCING' where user_id=? and next_sync_at<=now()",user);
         try{
-            var connection=connections.getFirst();var token=token(Map.of("client_id",clientId,"client_secret",clientSecret,"grant_type","refresh_token","refresh_token",open(user,(String)connection.get("refresh_secret"))));String access=string(token,"access_token");
-            String base="/calendars/"+encode((String)connection.get("calendar_id"))+"/events";
-            var dirty=jdbc.queryForList("select * from calendar_events where user_id=? and google_dirty order by updated_at limit 100",user);
-            for(var event:dirty)push(user,base,access,event);
-            Instant from=Instant.now().minus(Duration.ofDays(30)),to=Instant.now().plus(Duration.ofDays(730));
-            String page="";Set<String> seen=new HashSet<>();boolean complete=false;
-            for(int count=0;count<20;count++){
-                String query="?singleEvents=true&showDeleted=true&maxResults=2500&timeMin="+encode(from.toString())+"&timeMax="+encode(to.toString())+(page.isBlank()?"":"&pageToken="+encode(page));
-                var result=api("GET",base+query,access,null,null);
-                var defaults=reminders(result.get("defaultReminders"));
-                for(var remote:maps(result.get("items"))){String id=string(remote,"id");seen.add(id);importEvent(user,remote,defaults);}
-                page=string(result,"nextPageToken");if(page.isBlank()){complete=true;break;}
+            boolean pushed=false;
+            for(var connection:connections){
+                Boolean canSchedule=(Boolean)connection.get("can_schedule");boolean writable=!Boolean.FALSE.equals(canSchedule)&&!pushed;
+                jdbc.update("update calendar_google_connections set next_sync_at=now()+interval '10 minutes',sync_status='SYNCING' where user_id=? and calendar_id=?",user,connection.get("calendar_id"));
+                var token=token(Map.of("client_id",clientId,"client_secret",clientSecret,"grant_type","refresh_token","refresh_token",open(user,(String)connection.get("refresh_secret"))));String access=string(token,"access_token");
+                String base="/calendars/"+encode((String)connection.get("calendar_id"))+"/events";
+                if(writable){
+                    var dirty=jdbc.queryForList("select * from calendar_events where user_id=? and google_dirty order by updated_at limit 100",user);
+                    for(var event:dirty)push(user,base,access,event);
+                    pushed=true;
+                }
+                Instant from=Instant.now().minus(Duration.ofDays(30)),to=Instant.now().plus(Duration.ofDays(730));
+                String page="";Set<String> seen=new HashSet<>();boolean complete=false;
+                for(int count=0;count<20;count++){
+                    String query="?singleEvents=true&showDeleted=true&maxResults=2500&timeMin="+encode(from.toString())+"&timeMax="+encode(to.toString())+(page.isBlank()?"":"&pageToken="+encode(page));
+                    var result=api("GET",base+query,access,null,null);
+                    var defaults=reminders(result.get("defaultReminders"));
+                    for(var remote:maps(result.get("items"))){String id=string(remote,"id");seen.add(id);importEvent(user,remote,defaults);}
+                    page=string(result,"nextPageToken");if(page.isBlank()){complete=true;break;}
+                }
+                if(!complete)throw new GoogleFailure(429);
+                var linked=jdbc.queryForList("select google_id from calendar_events where user_id=? and status='ACTIVE' and not google_dirty and google_id is not null and starts_at>=? and starts_at<?",String.class,user,Timestamp.from(from),Timestamp.from(to));
+                for(String id:linked)if(!seen.contains(id)){try{importEvent(user,api("GET",base+"/"+encode(id),access,null,null),List.of());}catch(GoogleFailure failure){if(failure.status==404||failure.status==410)remoteCancel(user,id);else throw failure;}}
+                jdbc.update("update calendar_google_connections set last_sync_at=now(),sync_status=case when sync_status='PENDING' or exists(select 1 from calendar_events e where e.user_id=? and e.google_dirty) then 'PENDING' else 'OK' end,next_sync_at=case when sync_status='PENDING' or exists(select 1 from calendar_events e where e.user_id=? and e.google_dirty) then now() else 'infinity'::timestamptz end where user_id=? and calendar_id=?",user,user,user,connection.get("calendar_id"));
             }
-            if(!complete)throw new GoogleFailure(429);
-            var linked=jdbc.queryForList("select google_id from calendar_events where user_id=? and status='ACTIVE' and not google_dirty and google_id is not null and starts_at>=? and starts_at<?",String.class,user,Timestamp.from(from),Timestamp.from(to));
-            for(String id:linked)if(!seen.contains(id)){try{importEvent(user,api("GET",base+"/"+encode(id),access,null,null),List.of());}catch(GoogleFailure failure){if(failure.status==404||failure.status==410)remoteCancel(user,id);else throw failure;}}
-            jdbc.update("""
-                update calendar_google_connections c
-                set last_sync_at=now(),
-                    sync_status=case when c.sync_status='PENDING' or exists(
-                        select 1 from calendar_events e where e.user_id=c.user_id and e.google_dirty
-                    ) then 'PENDING' else 'OK' end,
-                    next_sync_at=case when c.sync_status='PENDING' or exists(
-                        select 1 from calendar_events e where e.user_id=c.user_id and e.google_dirty
-                    ) then now() else 'infinity'::timestamptz end
-                where c.user_id=? and c.refresh_secret<>''
-                """,user);
         }catch(RuntimeException failure){
             String status=failure instanceof GoogleFailure g&&(g.status==400||g.status==401)?"RECONNECT":"RETRYING";
             jdbc.update("""

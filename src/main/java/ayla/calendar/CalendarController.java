@@ -1,6 +1,7 @@
 package ayla.calendar;
 
 import static ayla.calendar.CalendarData.*;
+import static ayla.calendar.CalendarService.*;
 import java.security.Principal;
 import java.time.LocalDate;
 import java.util.*;
@@ -25,8 +26,19 @@ public class CalendarController {
     @GetMapping("/reminders") public Object reminders(Principal p,@RequestParam(defaultValue="true") boolean unread,@RequestParam(defaultValue="false") boolean archived){return calendar.notifications(identity.resolve(p),unread,archived);}
     @PostMapping("/reminders/{id}/read") public Map<String,Boolean> read(Principal p,@PathVariable UUID id){calendar.read(identity.resolve(p),id);return Map.of("read",true);}
     @GetMapping("/google") public Object status(Principal p){return google.status(identity.resolve(p));}
+    @GetMapping("/google/connections") public Object listConnections(Principal p){return google.listConnections(identity.resolve(p));}
     @PostMapping("/google/connect") public Object connect(Principal p){return Map.of("authorizationUrl",google.connect(identity.resolve(p)));}
-    @DeleteMapping("/google") public Object disconnect(Principal p){google.disconnect(identity.resolve(p));return Map.of("connected",false);}
+    @PutMapping("/google/connections/{connectionId}/can-schedule") public Object updateCanSchedule(Principal p,@PathVariable String connectionId,@RequestBody Map<String,Boolean> body){
+        Boolean canSchedule=body.get("canSchedule");
+        if(canSchedule==null)throw error(400,"canSchedule é obrigatório");
+        google.updateCanSchedule(identity.resolve(p),connectionId,canSchedule);
+        return Map.of("canSchedule",canSchedule);
+    }
+    @DeleteMapping("/google/connections/{connectionId}") public Object disconnect(Principal p,@PathVariable String connectionId){
+        google.disconnectConnection(identity.resolve(p),connectionId);
+        return Map.of("disconnected",true);
+    }
+    @DeleteMapping("/google") public Object disconnectAll(Principal p){google.disconnect(identity.resolve(p));return Map.of("connected",false);}
     @PostMapping("/google/sync") public Object sync(Principal p){google.requestSync(identity.resolve(p));return Map.of("queued",true);}
     @GetMapping("/google/callback") public org.springframework.http.ResponseEntity<Void> callback(@RequestParam(required=false) String state,@RequestParam(required=false) String code,@RequestParam(required=false) String error){
         boolean success=false;try{if(error==null){google.callback(state,code);success=true;}}catch(RuntimeException ignored){}

@@ -25,6 +25,7 @@ const month = ref(today.slice(0, 7)),
   error = ref(''),
   search = ref('')
 const google = ref({ configured: false, connected: false }),
+  connections = ref([]),
   connecting = ref(false),
   syncRequesting = ref(false),
   notifications = ref([]),
@@ -167,13 +168,16 @@ async function extras() {
   if (destroyed) return
   const current = ++extrasRevision
   try {
-    const [state, alerts, archived] = await Promise.all([
+    const [state, accounts, alerts, archived] = await Promise.all([
       api('/calendar/google'),
+      api('/calendar/google/connections'),
       api('/calendar/reminders'),
       api('/calendar/reminders?archived=true'),
     ])
     if (!destroyed && current === extrasRevision) {
       if (JSON.stringify(google.value) !== JSON.stringify(state)) google.value = state
+      if (JSON.stringify(connections.value) !== JSON.stringify(accounts))
+        connections.value = accounts
       notifications.value = retainRows(notifications.value, alerts)
       archivedNotifications.value = retainRows(archivedNotifications.value, archived)
     }
@@ -288,22 +292,6 @@ async function connect() {
     connecting.value = false
   }
 }
-async function disconnect() {
-  if (
-    !(await confirmAction(
-      'Desconectar o Google?',
-      'As agendas deixam de sincronizar. Os compromissos existentes continuam disponíveis.',
-    ))
-  )
-    return
-  try {
-    await api('/calendar/google', { method: 'DELETE' })
-    await extras()
-    toast('Google desconectado.')
-  } catch (e) {
-    toast(e.message, 'error')
-  }
-}
 async function sync() {
   if (syncRequesting.value || google.value.syncStatus === 'SYNCING') return
   syncRequesting.value = true
@@ -317,6 +305,55 @@ async function sync() {
     syncRequesting.value = false
   }
 }
+const toggling = ref({})
+async function toggleCanSchedule(connection) {
+  const next = !connection.canSchedule
+  toggling.value[connection.connectionId] = true
+  try {
+    await api(`/calendar/google/connections/${connection.connectionId}/can-schedule`, {
+      method: 'PUT',
+      body: { canSchedule: next },
+    })
+    connection.canSchedule = next
+    toast(
+      next
+        ? 'Agora a Ayla pode registrar esta agenda no Google.'
+        : 'Esta agenda Google ficará somente de leitura.',
+    )
+  } catch (e) {
+    toast(e.message, 'error')
+    await extras()
+  } finally {
+    toggling.value[connection.connectionId] = false
+  }
+}
+async function disconnectOne(connection) {
+  if (
+    !(await confirmAction(
+      'Desconectar esta conta Google?',
+      `“${connection.label}” deixa de sincronizar. Os compromissos já importados continuam disponíveis.`,
+    ))
+  )
+    return
+  try {
+    await api(`/calendar/google/connections/${connection.connectionId}`, { method: 'DELETE' })
+    await extras()
+    toast('Conta Google desconectada.')
+  } catch (e) {
+    toast(e.message, 'error')
+  }
+}
+function statusLabel(status) {
+  return (
+    {
+      OK: 'Agenda atualizada',
+      PENDING: 'Atualização na fila',
+      SYNCING: 'Sincronizando…',
+      RETRYING: 'Conexão temporariamente indisponível',
+      RECONNECT: 'Autorize novamente',
+    }[status] || 'Aguardando atualização'
+  )
+}
 async function read(id) {
   try {
     await api(`/calendar/reminders/${id}/read`, { method: 'POST' })
@@ -325,16 +362,6 @@ async function read(id) {
     toast(e.message, 'error')
   }
 }
-const syncLabel = computed(
-  () =>
-    ({
-      OK: 'Agendas atualizadas',
-      PENDING: 'Atualização na fila',
-      SYNCING: 'Sincronizando…',
-      RETRYING: 'Conexão temporariamente indisponível; vamos tentar de novo.',
-      RECONNECT: 'Autorize sua conta Google novamente.',
-    })[google.value.syncStatus] || 'Aguardando atualização',
-)
 function archivedFor(event) {
   const notices = new Map(
     archivedNotifications.value
@@ -572,46 +599,67 @@ onBeforeUnmount(() => {
       <span class="stat-icon lavender"><Icon name="calendar" /></span>
       <div class="google-calendar-copy">
         <h2>Google Agenda</h2>
-        <p v-if="!google.connected">
+        <p v-if="!connections.length">
           Sua agenda funciona por aqui. Se quiser, conecte o Google para manter seus compromissos
           nos dois lugares.
         </p>
-        <template v-else
-          ><p>{{ google.label }}</p>
-          <span class="tag lavender">{{ syncLabel }}</span>
-          <p v-if="google.lastSyncAt" class="footnote">
-            Última atualização: {{ new Date(google.lastSyncAt).toLocaleString('pt-BR') }}
-          </p></template
-        >
+        <ul v-else class="google-account-list">
+          <li v-for="account in connections" :key="account.connectionId" class="google-account">
+            <div class="google-account-info">
+              <strong>{{ account.label }}</strong>
+              <span class="tag lavender">{{ statusLabel(account.syncStatus) }}</span>
+              <p v-if="account.lastSyncAt" class="footnote">
+                Última atualização: {{ new Date(account.lastSyncAt).toLocaleString('pt-BR') }}
+              </p>
+            </div>
+            <div class="google-account-actions">
+              <label class="google-account-toggle">
+                <input
+                  type="checkbox"
+                  :checked="account.canSchedule"
+                  :disabled="toggling[account.connectionId]"
+                  @change="toggleCanSchedule(account)"
+                />Ayla pode registrar
+              </label>
+              <button class="text-link" @click="disconnectOne(account)">Desconectar</button>
+            </div>
+          </li>
+        </ul>
         <p v-if="!google.configured" class="footnote muted">
           A conexão Google ainda não foi habilitada. Sua agenda própria já está pronta.
         </p>
       </div>
       <div class="button-row">
         <button
-          v-if="!google.connected || google.syncStatus === 'RECONNECT'"
           class="button secondary"
           :disabled="!google.configured || connecting"
           title="Abre o site do Google para autorizar a conexão"
           @click="connect"
         >
-          <Icon name="calendar" :size="17" />Conectar Google<Icon name="external" :size="17" /><span
-            class="sr-only"
-          >
+          <Icon name="calendar" :size="17" />{{
+            connections.length ? 'Adicionar conta' : 'Conectar Google'
+          }}<Icon name="external" :size="17" /><span class="sr-only">
             (abre a autorização no site do Google)</span
           ></button
-        ><template v-if="google.connected"
-          ><button
-            class="button secondary"
-            :disabled="syncRequesting || google.syncStatus === 'SYNCING'"
-            :aria-busy="syncRequesting || google.syncStatus === 'SYNCING'"
-            @click="sync"
-          >
-            <Icon :name="syncRequesting || google.syncStatus === 'SYNCING' ? 'loading' : 'refresh'" :size="16" />
-            {{ syncRequesting ? 'Solicitando…' : google.syncStatus === 'SYNCING' ? 'Sincronizando…' : 'Sincronizar agora' }}
-          </button
-          ><button class="text-link" @click="disconnect">Desconectar</button></template
+        ><button
+          v-if="connections.length"
+          class="button secondary"
+          :disabled="syncRequesting || google.syncStatus === 'SYNCING'"
+          :aria-busy="syncRequesting || google.syncStatus === 'SYNCING'"
+          @click="sync"
         >
+          <Icon
+            :name="syncRequesting || google.syncStatus === 'SYNCING' ? 'loading' : 'refresh'"
+            :size="16"
+          />
+          {{
+            syncRequesting
+              ? 'Solicitando…'
+              : google.syncStatus === 'SYNCING'
+                ? 'Sincronizando…'
+                : 'Sincronizar agora'
+          }}
+        </button>
       </div>
     </section>
   </div>

@@ -13,11 +13,12 @@ import tools.jackson.databind.json.JsonMapper;
 @Service
 public class CalendarService {
     final JdbcTemplate jdbc;
+    final GoogleCalendarSync google;
     static final RowMapper<Event> ROW=(r,n)->new Event(r.getObject("id",UUID.class),r.getString("title"),r.getString("description"),r.getString("location"),
             r.getTimestamp("starts_at").toInstant(),r.getTimestamp("ends_at").toInstant(),r.getString("time_zone"),r.getBoolean("all_day"),
             Arrays.asList((Integer[])r.getArray("reminder_minutes").getArray()),r.getLong("version"),r.getString("status"),r.getString("source"),
             r.getBoolean("google_dirty"),r.getString("google_id")!=null,r.getTimestamp("updated_at").toInstant());
-    public CalendarService(JdbcTemplate jdbc){this.jdbc=jdbc;}
+    public CalendarService(JdbcTemplate jdbc, GoogleCalendarSync google){this.jdbc=jdbc;this.google=google;}
     public Event get(String user,UUID id){return jdbc.query("select * from calendar_events where user_id=? and id=?",ROW,user,id).stream().findFirst().orElseThrow(()->error(404,"Compromisso não encontrado."));}
     public List<Event> withScheduledReminders(String user,List<Event> events){
         if(events.isEmpty())return events;
@@ -131,6 +132,11 @@ public class CalendarService {
             jdbc.queryForObject("select pg_advisory_xact_lock(hashtextextended(?,0))",Object.class,"calendar:"+user+":"+key);
             var receipts=jdbc.queryForList("select fingerprint,event_id from calendar_action_receipts where user_id=? and action_key=?",user,key);
             if(!receipts.isEmpty()){if(!fingerprint.equals(receipts.getFirst().get("fingerprint")))throw error(409,"A chave já foi usada em outro pedido.");return get(user,(UUID)receipts.getFirst().get("event_id"));}}
+        GoogleCalendarSync.GoogleFailure googleFailure = null;
+        // Sincronizar Google antes de salvar, se conectado
+        if(jdbc.queryForObject("select count(*) from calendar_google_connections where user_id=? and refresh_secret<>''",Integer.class,user) > 0){
+            try{google.sync(user);}catch(Exception ignored){}
+        }
         Event old=null;
         if(id!=null){jdbc.queryForList("select id from calendar_events where user_id=? and id=? for update",user,id);old=get(user,id);
             if(!old.status().equals("ACTIVE"))throw error(409,"Esse compromisso já foi cancelado.");
