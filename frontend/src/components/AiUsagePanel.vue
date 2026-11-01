@@ -2,7 +2,6 @@
 import { ref, watch, onBeforeUnmount } from 'vue'
 import { api, query } from '../lib/api'
 import BaseChart from './BaseChart.vue'
-import { timestamp } from '../lib/format'
 
 const props = defineProps({
   filters: { type: Object, required: true },
@@ -13,11 +12,8 @@ const usage = ref(null),
   error = ref(''),
   loading = ref(false)
 const selectedUser = ref(props.filters.userId || ''),
-  period = ref('filters'),
-  page = ref(0),
-  calls = ref({ items: [], total: 0 })
+  period = ref('filters')
 const number = (value) => Number(value || 0).toLocaleString('pt-BR')
-const tokens = (value) => (value == null ? 'Não informado' : number(value))
 let generation = 0
 function parameters() {
   const params = { ...props.filters, userId: selectedUser.value }
@@ -43,15 +39,8 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const params = parameters()
-    const [result, entries] = await Promise.all([
-      api('/monitoring/ai-usage?' + query(params)),
-      api('/monitoring/ai-usage/calls?' + query({ ...params, page: page.value, size: 25 })),
-    ])
-    if (generation === current) {
-      usage.value = result
-      calls.value = entries
-    }
+    const result = await api('/monitoring/ai-usage?' + query(parameters()))
+    if (generation === current) usage.value = result
   } catch (failure) {
     if (generation === current) {
       error.value =
@@ -67,15 +56,9 @@ watch(
   () => props.filters.userId,
   (value) => {
     selectedUser.value = value || ''
-    page.value = 0
   },
 )
 function changeFilters() {
-  page.value = 0
-  load()
-}
-function changePage(direction) {
-  page.value += direction
   load()
 }
 onBeforeUnmount(() => {
@@ -208,119 +191,68 @@ function chartConfig(theme) {
         :watch-source="usage.daily"
         label="Tokens por dia, no horário de Brasília"
       />
-      <h3>Tokens por chamada</h3>
       <p class="muted">
-        Cada linha representa uma chamada, incluindo análises de imagens e correções. O total acima
-        considera todas as páginas.
+        Cada chamada aparece no fluxo de atividade abaixo, junto com as operações da API, com
+        modelo e tokens na própria linha.
       </p>
-      <div class="table-wrap" v-if="calls.items.length">
-        <table class="responsive-table">
-          <thead>
-            <tr>
-              <th>Quando / usuário</th>
-              <th>Modelo / origem</th>
-              <th>Resultado</th>
-              <th>Entrada</th>
-              <th>Saída</th>
-              <th>Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="call in calls.items" :key="call.id">
-              <td data-label="Usuário">
-                {{ call.user_name
-                }}<small class="block muted">{{ timestamp(call.occurred_at) }}</small>
-              </td>
-              <td data-label="Modelo">
-                {{ call.model || 'Não informado'
-                }}<small class="block muted"
-                  >{{ call.source === 'WHATSAPP' ? 'WhatsApp' : 'Site' }} ·
-                  {{ call.purpose === 'VISION' ? 'Imagem' : 'Conversa' }}</small
-                >
-              </td>
-              <td data-label="Resultado">
-                {{ call.status < 400 ? 'Concluída' : 'Não concluída' }}
-              </td>
-              <td data-label="Entrada">{{ tokens(call.input_tokens) }}</td>
-              <td data-label="Saída">{{ tokens(call.output_tokens) }}</td>
-              <td data-label="Total">{{ tokens(call.total_tokens) }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <p v-else class="muted">Nenhuma chamada nesta página.</p>
-      <div class="pagination">
-        <span>{{ number(calls.total) }} chamadas · página {{ page + 1 }}</span>
-        <div class="button-row">
-          <button
-            class="button secondary"
-            :disabled="page === 0 || loading"
-            @click="changePage(-1)"
-          >
-            Chamadas anteriores
-          </button>
-          <button
-            class="button secondary"
-            :disabled="(page + 1) * 25 >= calls.total || loading"
-            @click="changePage(1)"
-          >
-            Próximas chamadas
-          </button>
+      <details class="monitor-breakdown">
+        <summary>Detalhamento por usuário e por modelo</summary>
+        <h3>Por usuário</h3>
+        <div class="table-wrap" v-if="usage.byUser.length">
+          <table class="responsive-table">
+            <thead>
+              <tr>
+                <th>Usuário</th>
+                <th>Chamadas</th>
+                <th>Entrada</th>
+                <th>Saída</th>
+                <th>Total informado</th>
+                <th>Sem total</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in usage.byUser" :key="row.user_id || 'unknown'">
+                <td data-label="Usuário">{{ row.user_name }}</td>
+                <td data-label="Chamadas">{{ number(row.calls) }}</td>
+                <td data-label="Entrada">{{ number(row.input_tokens) }}</td>
+                <td data-label="Saída">{{ number(row.output_tokens) }}</td>
+                <td data-label="Total informado">{{ number(row.total_tokens) }}</td>
+                <td data-label="Sem total">{{ number(row.unreported_calls) }}</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-      </div>
-      <h3>Por usuário</h3>
-      <div class="table-wrap" v-if="usage.byUser.length">
-        <table class="responsive-table">
-          <thead>
-            <tr>
-              <th>Usuário</th>
-              <th>Chamadas</th>
-              <th>Entrada</th>
-              <th>Saída</th>
-              <th>Total informado</th>
-              <th>Sem total</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in usage.byUser" :key="row.user_id || 'unknown'">
-              <td data-label="Usuário">{{ row.user_name }}</td>
-              <td data-label="Chamadas">{{ number(row.calls) }}</td>
-              <td data-label="Entrada">{{ number(row.input_tokens) }}</td>
-              <td data-label="Saída">{{ number(row.output_tokens) }}</td>
-              <td data-label="Total informado">{{ number(row.total_tokens) }}</td>
-              <td data-label="Sem total">{{ number(row.unreported_calls) }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <h3>Por modelo</h3>
-      <div class="table-wrap" v-if="usage.byModel.length">
-        <table class="responsive-table">
-          <thead>
-            <tr>
-              <th>Provedor / modelo</th>
-              <th>Chamadas</th>
-              <th>Entrada</th>
-              <th>Saída</th>
-              <th>Total informado</th>
-              <th>Sem total</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in usage.byModel" :key="`${row.provider}/${row.model}`">
-              <td data-label="Modelo">
-                {{ row.model || 'Não informado'
-                }}<small class="block muted">{{ row.provider || 'Provedor não informado' }}</small>
-              </td>
-              <td data-label="Chamadas">{{ number(row.calls) }}</td>
-              <td data-label="Entrada">{{ number(row.input_tokens) }}</td>
-              <td data-label="Saída">{{ number(row.output_tokens) }}</td>
-              <td data-label="Total informado">{{ number(row.total_tokens) }}</td>
-              <td data-label="Sem total">{{ number(row.unreported_calls) }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+        <h3>Por modelo</h3>
+        <div class="table-wrap" v-if="usage.byModel.length">
+          <table class="responsive-table">
+            <thead>
+              <tr>
+                <th>Provedor / modelo</th>
+                <th>Chamadas</th>
+                <th>Entrada</th>
+                <th>Saída</th>
+                <th>Total informado</th>
+                <th>Sem total</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in usage.byModel" :key="`${row.provider}/${row.model}`">
+                <td data-label="Modelo">
+                  {{ row.model || 'Não informado'
+                  }}<small class="block muted">{{
+                    row.provider || 'Provedor não informado'
+                  }}</small>
+                </td>
+                <td data-label="Chamadas">{{ number(row.calls) }}</td>
+                <td data-label="Entrada">{{ number(row.input_tokens) }}</td>
+                <td data-label="Saída">{{ number(row.output_tokens) }}</td>
+                <td data-label="Total informado">{{ number(row.total_tokens) }}</td>
+                <td data-label="Sem total">{{ number(row.unreported_calls) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
       <p class="muted monitor-note">
         Histórico dos últimos dois meses, com limpeza automática dos registros mais antigos. Inclui
         chat, análise visual e chamadas extras de correção. Até 50 usuários e 50 modelos por
@@ -344,6 +276,12 @@ function chartConfig(theme) {
 @media (max-width: 600px) {
   .ai-usage-filters {
     grid-template-columns: 1fr;
+  }
+  .monitor-metrics {
+    grid-template-columns: 1fr;
+  }
+  .chart {
+    height: 200px;
   }
 }
 </style>

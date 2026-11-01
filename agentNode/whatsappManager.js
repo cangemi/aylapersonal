@@ -606,8 +606,9 @@ class WhatsappManager {
         }
     }
     async failMessages(error, stage, chatId, ids, receivingClient, epoch) {
-        // Only a fixed stage code is sent: never message text, phone, media or exception payload.
-        void reportWhatsappFailure(this.config,stage);
+        // Only a fixed stage code and the opaque request key are sent: never message text, phone, media or exception payload.
+        let requestKey;try {requestKey=createHash('sha256').update(ids.join('\n')).digest('hex');}catch {}
+        void reportWhatsappFailure(this.config,stage,requestKey);
             const detail = String(error.message || error.name || 'Erro desconhecido')
                 .replaceAll(this.config.apiKey || '\0', '[credencial]')
                 .replace(/https?:\/\/\S+/g, '[url]').replace(/[0-9-]{5,}/g, '[id]').slice(0, 600);

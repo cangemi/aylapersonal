@@ -4059,6 +4059,222 @@ body {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.monitor-filter-drawer > summary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  list-style: none;
+  margin-bottom: 14px;
+}
+.monitor-filter-drawer > summary::-webkit-details-marker {
+  display: none;
+}
+.monitor-filter-drawer .monitor-filters {
+  margin-top: 6px;
+}
+.monitor-view {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.monitor-user {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  margin-bottom: 14px;
+  overflow: hidden;
+}
+.monitor-user-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 14px 16px;
+  background: var(--input);
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  min-height: 56px;
+}
+.monitor-user-head:hover {
+  background: var(--panel-hover);
+}
+.monitor-user-avatar {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 700;
+}
+.monitor-user-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.monitor-user-name strong {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.monitor-user-name small {
+  color: var(--muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.monitor-user-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+.monitor-feed {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.monitor-row {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr) minmax(0, 260px);
+  gap: 16px;
+  align-items: start;
+  padding: 14px 16px;
+  border-top: 1px solid var(--line);
+  min-width: 0;
+}
+.monitor-row:first-child {
+  border-top: 0;
+}
+.monitor-row-error {
+  background: color-mix(in srgb, var(--red) 5%, transparent);
+}
+.monitor-row-head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+.monitor-row-time {
+  font-size: 12px;
+  color: var(--muted);
+}
+.monitor-row-source {
+  font-size: 11px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.monitor-row-body {
+  min-width: 0;
+}
+.monitor-row-body strong {
+  display: block;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.monitor-row-body code {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+.monitor-row-body small {
+  display: block;
+  font-size: 11px;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+.monitor-row-side {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.monitor-row-metric {
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.monitor-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+.monitor-journey-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.monitor-timeline {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0 0 0 22px;
+  position: relative;
+}
+.monitor-timeline::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  background: var(--line);
+}
+.monitor-timeline li {
+  position: relative;
+  padding: 0 0 18px;
+}
+.monitor-timeline li:last-child {
+  padding-bottom: 0;
+}
+.monitor-timeline-dot {
+  position: absolute;
+  left: -22px;
+  top: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--panel);
+  background: var(--green);
+}
+.monitor-timeline li.error .monitor-timeline-dot {
+  background: var(--red);
+}
+.monitor-timeline strong {
+  display: block;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.monitor-timeline small {
+  display: block;
+  font-size: 11px;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+.monitor-breakdown > summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  margin: 18px 0 12px;
+  list-style: none;
+}
+.monitor-breakdown > summary::-webkit-details-marker {
+  display: none;
+}
+.monitor-breakdown h3 {
+  margin: 16px 0 10px;
+}
 @media (max-width: 1100px) {
   .monitor-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -4066,10 +4282,64 @@ body {
   .monitor-filters {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .monitor-row {
+    grid-template-columns: 130px minmax(0, 1fr) minmax(0, 220px);
+  }
+}
+@media (max-width: 900px) {
+  .monitor-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+  .monitor-row-head {
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .monitor-row-side {
+    gap: 8px;
+  }
+  .monitor-row-actions {
+    margin-left: 0;
+    width: 100%;
+  }
+  .monitor-row-actions .button {
+    flex: 1;
+  }
+  .monitor-user-stats {
+    margin-left: 0;
+    width: 100%;
+    order: 3;
+  }
+  .monitor-user-head {
+    flex-wrap: wrap;
+  }
 }
 @media (max-width: 600px) {
-  .monitor-filters {
-    grid-template-columns: minmax(0, 1fr);
+  .monitor-events {
+    order: 2;
+  }
+  .monitor-metrics {
+    order: 3;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .monitor-metrics article {
+    padding: 12px;
+  }
+  .monitor-metrics strong {
+    font-size: 24px;
+  }
+  .monitor-metrics small {
+    font-size: 11px;
+  }
+  .monitor-toolbar {
+    gap: 8px;
+  }
+  .monitor-toolbar .muted {
+    order: 3;
+    width: 100%;
   }
   .monitor-metrics {
     gap: 10px;
@@ -4089,6 +4359,30 @@ body {
   .monitor-failure {
     align-items: flex-start;
     flex-wrap: wrap;
+  }
+  .monitor-view {
+    width: 100%;
+  }
+  .monitor-view .button {
+    flex: 1;
+    min-width: 0;
+  }
+  .monitor-view .button svg {
+    display: none;
+  }
+  .monitor-row {
+    padding: 14px;
+  }
+  .monitor-detail {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+  .monitor-detail dd {
+    margin-bottom: 12px;
+  }
+  .responsive-table td:last-child .button {
+    width: 100%;
+    margin-top: 4px;
   }
 }
 .chat-whatsapp-button {

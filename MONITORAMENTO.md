@@ -4,7 +4,7 @@ Para métricas da VPS, réplicas Java com balanceamento, logs centralizados e tr
 
 O menu **Monitoramento**, em `/monitoramento`, é exclusivo do proprietário da instância. O papel existente `OWNER` representa o superadministrador; o backend exige esse papel e confirma que `userId` corresponde a `ayla.chat.owner-id`. Outros usuários não veem o menu e recebem bloqueio ao chamar os endpoints diretamente. A chave interna do WhatsApp não dá acesso à leitura do painel.
 
-O Flyway V25 cria `application_events` no PostgreSQL. O registro começa na ativação: não importa logs históricos. São registrados horário, usuário identificado, origem, operação, rota parametrizada, status, duração e, nas falhas, classe da exceção, motivo resumido e arquivos/linhas do código da aplicação. Um UUID de referência também aparece em `X-Ayla-Request-Id` e no log seguro das falhas 5xx. Não são armazenados corpos de requisição/resposta, query strings, tokens, senhas, telefone, mensagens, conteúdo financeiro nem anexos. Por isso, o monitoramento identifica a operação, mas não reproduz a conversa ou o conteúdo preenchido.
+O Flyway V25 cria `application_events` no PostgreSQL. O Flyway V47 correlaciona `application_events.request_key` e `ai_usage_events.request_id` com `chat_jobs.request_key`, ligando a jornada da Ayla. O registro começa na ativação: não importa logs históricos. São registrados horário, usuário identificado, origem, operação, rota parametrizada, status, duração e, nas falhas, classe da exceção, motivo resumido e arquivos/linhas do código da aplicação. Um UUID de referência também aparece em `X-Ayla-Request-Id` e no log seguro das falhas 5xx. Não são armazenados corpos de requisição/resposta, query strings, tokens, senhas, telefone, mensagens, conteúdo financeiro nem anexos. Por isso, o monitoramento identifica a operação, mas não reproduz a conversa ou o conteúdo preenchido.
 
 Operações da API, ferramentas internas do Hermes e acesso/autenticação entram no histórico. As ferramentas atribuem o usuário após validar sua sessão. Falhas de processamento do WhatsApp anteriores à API (download de mídia, contexto e entrega) são enviadas de forma assíncrona com um código de etapa fixo para `/internal/monitoring/whatsapp`, autenticado apenas pela chave interna desse serviço; o Java associa ao proprietário configurado. O reporte não inclui texto nem o erro bruto e não bloqueia o processamento se a API estiver fora do ar. Se a API e o PostgreSQL estiverem indisponíveis, esses eventos podem não chegar ao painel; os logs locais continuam necessários para investigar essa indisponibilidade.
 
@@ -15,7 +15,9 @@ O painel oferece filtros por período (até 31 dias por consulta), usuário, ori
 Endpoints de leitura protegidos, disponíveis no Swagger:
 
 - `GET /api/v1/monitoring`: totais e ações com mais erros.
-- `GET /api/v1/monitoring/events`: histórico paginado, até 100 registros por página.
+- `GET /api/v1/monitoring/feed`: fluxo unificado de API e IA, paginado (até 100 registros), agrupável por usuário no frontend.
+- `GET /api/v1/monitoring/traces`: chamadas feitas à Ayla (chat_jobs) com contagem de chamadas e tokens de IA, paginado.
+- `GET /api/v1/monitoring/traces/{reference}`: jornada completa de uma chamada, aceita UUID do job ou request_key (sha256). Retorna `ai_calls`, `related` e `duration_ms`.
 - `GET /api/v1/monitoring/events/{id}`: detalhes e localização do erro no código.
 - `GET /api/v1/monitoring/users`: usuários para os filtros.
 

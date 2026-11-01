@@ -269,7 +269,7 @@ async function login(page) {
   })
   await expect(page.locator('.login-layout img')).toHaveCount(0)
   await expect(page.locator('.login-logo')).toHaveAccessibleName('Ayla')
-  await expect(page.locator('.login-logo-name')).toHaveText('A✦')
+  await expect(page.locator('.login-logo-name')).toHaveText('Ayla✦')
   await expect
     .poll(() =>
       page
@@ -564,7 +564,12 @@ test('monitoramento mostra falhas no celular e bloqueia usuários comuns', async
         byModel: [{ provider: 'nous', model: 'nous/welcome', ...totals }],
         daily: [{ day: '2026-10-26', ...totals }],
       }
-    } else if (url.pathname.endsWith('/events/' + event.id)) response = event
+    } else if (url.pathname.endsWith('/feed')) {
+      filtered ||= url.searchParams.get('outcome') === 'ERROR'
+      response = { items: [{ ...event, kind: 'api' }], total: 1 }
+    }
+    else if (url.pathname.endsWith('/traces')) response = { items: [], total: 0 }
+    else if (url.pathname.endsWith('/events/' + event.id)) response = event
     else if (url.pathname.endsWith('/events')) {
       filtered ||= url.searchParams.get('outcome') === 'ERROR'
       response = { items: [event], total: 1 }
@@ -587,8 +592,6 @@ test('monitoramento mostra falhas no celular e bloqueia usuários comuns', async
   await expect(page.getByRole('heading', { name: 'Monitoramento da aplicação.' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Uso da IA', exact: true })).toBeVisible()
   await expect(page.getByText('1.350', { exact: true }).first()).toBeVisible()
-  await expect(page.getByRole('cell', { name: 'nous/welcome' }).first()).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Tokens por chamada' })).toBeVisible()
   const graph = page.getByRole('img', { name: 'Tokens por dia, no horário de Brasília' })
   await expect(graph).toBeVisible()
   const allocations = await graph.evaluate((canvas) => window.chartAllocations(canvas))
@@ -629,7 +632,7 @@ test('monitoramento mostra falhas no celular e bloqueia usuários comuns', async
   const member = { ...session, user: { ...session.user, role: 'USER' } }
   await page.route('**/api/v1/auth/me', (route) => route.fulfill({ json: member.user }))
   await page.goto('/monitoramento')
-  await expect(page).toHaveURL(/\/$/)
+  await expect(page).toHaveURL(/\/chat/)
   await expect(page.getByRole('link', { name: 'Monitoramento', exact: true })).toHaveCount(0)
   expect(monitorCalls).toBe(before)
 })

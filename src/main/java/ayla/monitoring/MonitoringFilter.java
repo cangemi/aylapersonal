@@ -50,7 +50,8 @@ public class MonitoringFilter extends OncePerRequestFilter {
                         if(status>=500)log.warn("Falha monitorada requestId={} action={} status={} type={} locations={}",id,action,status,type,frames);
                     }
                     service.record(new MonitoringService.Event(id,at,user,source,req.getMethod(),cut(route,240),cut(action,180),status,
-                            Math.max(0,(System.nanoTime()-start)/1_000_000),cut(type,120),reason,frames));
+                            Math.max(0,(System.nanoTime()-start)/1_000_000),cut(type,120),reason,frames,
+                            cut(req.getHeader("Idempotency-Key"),128)));
                 }
             }catch(Exception e){log.warn("Não foi possível persistir monitoramento requestId={} type={}",id,e.getClass().getSimpleName());}
             finally{if(previous==null)MDC.remove("requestId");else MDC.put("requestId",previous);}

@@ -59,15 +59,21 @@ public class AiUsageService {
                     .addValue("provider",modelId(runtime.get("provider"))).addValue("model",modelId(runtime.get("model")))
                     .addValue("purpose",request.get("message") instanceof List<?>?"VISION":"CHAT")
                     .addValue("status",status).addValue("duration",Math.max(0,durationMs))
-                    .addValue("input",input).addValue("output",output).addValue("total",total);
+                    .addValue("input",input).addValue("output",output).addValue("total",total)
+                    // Ties this call to the job or request that caused it, so the panel can show the full journey.
+                    .addValue("request",correlation());
             jdbc.update("""
-                    insert into ai_usage_events(id,occurred_at,user_id,source,provider,model,purpose,status,duration_ms,input_tokens,output_tokens,total_tokens)
-                    values(:id,:time,:user,:source,:provider,:model,:purpose,:status,:duration,:input,:output,:total)
+                    insert into ai_usage_events(id,occurred_at,user_id,source,provider,model,purpose,status,duration_ms,input_tokens,output_tokens,total_tokens,request_id)
+                    values(:id,:time,:user,:source,:provider,:model,:purpose,:status,:duration,:input,:output,:total,:request)
                     """,p);
         } catch (RuntimeException error) {
             // A metrics failure must never cause a repeated financial action or inference.
             LoggerFactory.getLogger(getClass()).warn("Não foi possível salvar uso da IA. tipo={}",error.getClass().getSimpleName());
         }
+    }
+    static String correlation(){
+        String id=org.slf4j.MDC.get("requestId");
+        return id!=null&&id.matches("[A-Za-z0-9_-]{1,64}")?id:null;
     }
 
     private record Filter(String sql,Map<String,Object> params) {}
@@ -114,7 +120,7 @@ public class AiUsageService {
         var filter=filter(from,to,userId,source);var p=filter.params();p.put("limit",size);p.put("offset",page*size);
         var rows=jdbc.queryForList("""
                 select e.id,e.occurred_at,e.user_id,coalesce(a.display_name,a.username,'Usuário não identificado') as user_name,
-                       e.source,e.provider,e.model,e.purpose,e.status,e.duration_ms,e.input_tokens,e.output_tokens,e.total_tokens
+                       e.source,e.provider,e.model,e.purpose,e.status,e.duration_ms,e.input_tokens,e.output_tokens,e.total_tokens,e.request_id
                 from ai_usage_events e left join auth_accounts a on a.user_id=e.user_id where
                 """+filter.sql()+" order by e.occurred_at desc,e.id limit :limit offset :offset",p);
         Long total=jdbc.queryForObject("select count(*) from ai_usage_events e where "+filter.sql(),p,Long.class);

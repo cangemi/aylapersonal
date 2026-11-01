@@ -44,6 +44,22 @@ public class MonitoringController {
             @RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="25") int size){
         owner(user);return result(service.events(new MonitoringService.Query(from,to,userId,source,outcome,q,page,size)));
     }
+    @GetMapping("/feed") @Operation(summary="Listar atividade da API e chamadas à IA em um único fluxo",
+            description="Une application_events e ai_usage_events em ordem cronológica, com o tipo de cada linha (api ou ia) e a chave que liga a chamada ao restante da jornada.")
+    public ResponseEntity<?> feed(@AuthenticationPrincipal Identity user,@RequestParam(required=false) Instant from,@RequestParam(required=false) Instant to,
+            @RequestParam(required=false) String userId,@RequestParam(required=false) String source,@RequestParam(defaultValue="ALL") String outcome,@RequestParam(required=false) String q,
+            @RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="50") int size){
+        owner(user);return result(service.feed(new MonitoringService.Query(from,to,userId,source,outcome,q,page,size)));
+    }
+    @GetMapping("/traces") @Operation(summary="Listar chamadas feitas à Ayla",description="Pedidos da fila com situação, duração e consumo de IA no período.")
+    public ResponseEntity<?> traces(@AuthenticationPrincipal Identity user,@RequestParam(required=false) Instant from,@RequestParam(required=false) Instant to,
+            @RequestParam(required=false) String userId,@RequestParam(required=false) String source,@RequestParam(defaultValue="ALL") String outcome,
+            @RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="25") int size){
+        owner(user);return result(service.traces(new MonitoringService.Query(from,to,userId,source,outcome,null,page,size)));
+    }
+    @GetMapping("/traces/{reference}") @Operation(summary="Consultar a jornada de uma chamada à Ayla",
+            description="Linha do tempo do recebimento da mensagem até a resposta: fila, chamadas ao modelo com tokens e entrega no WhatsApp.")
+    public ResponseEntity<?> trace(@AuthenticationPrincipal Identity user,@PathVariable String reference){owner(user);return result(service.trace(reference));}
     @GetMapping("/events/{id}") @Operation(summary="Consultar detalhes técnicos de um evento")
     public ResponseEntity<?> detail(@AuthenticationPrincipal Identity user,@PathVariable UUID id){owner(user);return result(service.detail(id));}
     @GetMapping("/users") @Operation(summary="Listar usuários para filtrar o monitoramento")

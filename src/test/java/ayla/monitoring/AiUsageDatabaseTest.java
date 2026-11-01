@@ -18,7 +18,13 @@ class AiUsageDatabaseTest {
         var jdbc=new JdbcTemplate(new DriverManagerDataSource(database.getJdbcUrl(),database.getUsername(),database.getPassword()));
         jdbc.execute("create table chat_users(user_id varchar(255),hermes_profile varchar(64))");
         jdbc.execute("create table auth_accounts(user_id varchar(255),username varchar(120),display_name varchar(120))");
+        try(var migration=getClass().getResourceAsStream("/db/migration/V25__application_monitoring.sql")) {
+            jdbc.execute(new String(Objects.requireNonNull(migration).readAllBytes(),StandardCharsets.UTF_8));
+        }
         try(var migration=getClass().getResourceAsStream("/db/migration/V30__ai_usage_monitoring.sql")) {
+            jdbc.execute(new String(Objects.requireNonNull(migration).readAllBytes(),StandardCharsets.UTF_8));
+        }
+        try(var migration=getClass().getResourceAsStream("/db/migration/V47__monitoring_call_trace.sql")) {
             jdbc.execute(new String(Objects.requireNonNull(migration).readAllBytes(),StandardCharsets.UTF_8));
         }
         jdbc.update("insert into chat_users values ('alice','profile-alice'),('bob','profile-bob')");
