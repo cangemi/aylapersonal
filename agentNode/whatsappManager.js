@@ -694,6 +694,37 @@ class WhatsappManager {
             throw Object.assign(new Error('Entrega do lembrete não confirmada'),{status:503});
         }
     }
+    async sendAlarmNotification(id) {
+        const client=this.client;
+        if(!this.integrationActive())
+            return {status:'FRONT_ONLY'};
+        if(!await this.repository.accountEnabled())throw Object.assign(new Error('Conta inativa'),{status:403});
+        const result=await this.repository.pool.query(`select n.whatsapp_status,a.title
+            from alarm_notifications n join alarms a on a.id=n.alarm_id
+            where n.id=$1 and a.user_id=$2 and n.notified_at is not null`,[id,this.config.ownerId]);
+        const notification=result.rows[0];
+        if(!notification)return {status:'SKIPPED'};
+        if(notification.whatsapp_status!=='PENDING' && notification.whatsapp_status!=='SENDING')return {status:notification.whatsapp_status};
+        let primary=(await this.repository.list()).find(chat=>chat.enabled && !chat.mentionOnly);
+        if(!primary)primary=(await this.createPersonalChat()).chat;
+        if(!primary?.enabled || primary.mentionOnly)throw Object.assign(new Error('Conversa principal indisponível'),{status:409});
+        if(this.client!==client || this.phase!=='ready' || this.stopping)return {status:'FRONT_ONLY'};
+        const claimed=await this.repository.pool.query(`update alarm_notifications n set whatsapp_status='SENDING',whatsapp_attempt_at=now()
+            from alarms a where n.id=$1 and n.alarm_id=a.id and a.user_id=$2
+            and n.whatsapp_status='PENDING' returning n.id`,[id,this.config.ownerId]);
+        if(!claimed.rowCount)return {status:'ALREADY_CLAIMED'};
+        try {
+            if(this.client!==client || this.phase!=='ready')throw new Error('Connection changed');
+            const route = await this.delivery(primary.chatId);
+            if (!route.active()) throw new Error('Connection changed');
+            await this.sendText(route.client,route.chatId,formatReply(`⏰ Alarme: ${notification.title}`));
+            await this.repository.pool.query("update alarm_notifications set whatsapp_status='SENT' where id=$1",[id]);
+            return {status:'SENT'};
+        } catch(error) {
+            await this.repository.pool.query("update alarm_notifications set whatsapp_status='UNCERTAIN' where id=$1",[id]).catch(()=>{});
+            throw Object.assign(new Error('Entrega do alarme não confirmada'),{status:503});
+        }
+    }
     async sendPasswordRecovery({userId,registeredNumber,password,requestId}) {
         const client=this.client;
         if(!client || this.phase!=='ready' || this.stopping)throw Object.assign(new Error('WhatsApp indisponível'),{status:503});

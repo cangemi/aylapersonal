@@ -9,6 +9,11 @@ const routes = [
     meta: { title: 'Compras e preços', subtitle: 'Seu histórico, sem perder os detalhes.' },
   },
   {
+    path: '/alarmes',
+    component: () => import('./pages/Alarms.vue'),
+    meta: { title: 'Alarmes', subtitle: 'Seus alarmes e lembretes.' },
+  },
+  {
     path: '/agenda',
     component: () => import('./pages/Calendar.vue'),
     meta: { title: 'Agenda', subtitle: 'Um lembrete para cada plano.' },

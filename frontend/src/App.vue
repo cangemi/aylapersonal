@@ -7,7 +7,7 @@ import Icon from './components/Icon.vue'
 import AylaLogo from './components/AylaLogo.vue'
 import Modal from './components/Modal.vue'
 import InstallApp from './components/InstallApp.vue'
-import CalendarAlerts from './components/CalendarAlerts.vue'
+import NotificationsCenter from './components/NotificationsCenter.vue'
 const route = useRoute(),
   router = useRouter(),
   menu = ref(false)
@@ -84,6 +84,7 @@ const nav = [
   ['/', 'dashboard', 'Visão geral'],
   ['/chat', 'chat', 'Conversar com Ayla'],
   ['/agenda', 'calendar', 'Agenda'],
+  ['/alarmes', 'bell', 'Alarmes'],
   ['/financeiro', 'wallet', 'Financeiro'],
   ['/investimentos', 'trend', 'Investimentos'],
   ['/despensa', 'pantry', 'Despensa'],
@@ -187,8 +188,7 @@ async function logout() {
           >Meu espaço <Icon name="right" :size="14" /><strong>{{ route.meta.title }}</strong></span
         >
         <div class="topbar-right">
-          <CalendarAlerts />
-          <InstallApp v-if="mobile" />
+          <NotificationsCenter />          <InstallApp v-if="mobile" />
           <span class="private-label"><Icon name="shield" :size="14" />Seu espaço, privado</span
           ><button
             class="icon-button"

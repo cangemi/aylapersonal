@@ -157,6 +157,8 @@ async function resumeQueued(conversation) {
         !(list.at(-1)?.role === 'assistant' && list.at(-1)?.text === result.response)
       )
         list.push({ role: 'assistant', text: result.response, audio: result.audio, jobId: job.id })
+        if (document.hidden && typeof Notification !== 'undefined' && Notification.permission === 'granted')
+          new Notification('Ayla', { body: result.response })
       await acknowledgeChatJob(job.id)
     }
     await bottom()

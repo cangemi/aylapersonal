@@ -153,6 +153,15 @@ CALENDAR_TOOLS = {
     'google_sync': ('Solicitar atualização do Google conectado. É processada em segundo plano; não afirme que concluiu antes do status OK.', {}, []),
 }
 
+ALARM_TOOLS = {
+    'list': ('Consultar alarmes REAIS do usuário no PostgreSQL. Retorna únicos e recorrentes diários.', {'page': {'type': 'integer', 'minimum': 0}, 'size': {'type': 'integer', 'minimum': 1, 'maximum': 100}}, []),
+    'get': ('Ler estado atual de um alarme no PostgreSQL.', {'id': STRING}, ['id']),
+    'save': ('Criar ou editar alarme. Para "daqui a X minutos" use delayMinutes em vez de alarmAt. Campos obrigatórios: title e (alarmAt ou delayMinutes para único; timeOfDay HH:mm para recorrente diário) e timeZone. confirmNeeded true quando o usuário quiser confirmação (ex.: remédio) e alertas a cada 5 minutos até confirmar. Se faltar dado obrigatório, pergunte antes de salvar.', {'id': STRING, 'version': {'type': 'integer', 'minimum': 0}, 'title': {'type': 'string', 'maxLength': 200}, 'description': {'type': 'string', 'maxLength': 4000}, 'type': {'type': 'string', 'enum': ['ONCE', 'DAILY']}, 'alarmAt': {'type': 'string', 'description': 'Instante ISO-8601 com offset para alarme único.'}, 'delayMinutes': {'type': 'integer', 'minimum': 1, 'maximum': 40320, 'description': 'Minutos a partir de agora para alarme único: 2 minutos=2; 30 minutos=30.'}, 'timeOfDay': {'type': 'string', 'description': 'Horário HH:mm para alarme recorrente diário.'}, 'timeZone': {'type': 'string'}, 'confirmNeeded': {'type': 'boolean'}, 'active': {'type': 'boolean'}}, ['title']),
+    'delete': ('Excluir um alarme quando solicitado. Use id e versão reais.', {'id': STRING, 'version': {'type': 'integer', 'minimum': 0}}, ['id', 'version']),
+    'confirm': ('Confirmar que o usuário atendeu ao alarme; interrompe repetições a cada 5 minutos.', {'id': STRING}, ['id']),
+}
+
+
 def call(operation, args, session_id='', namespace='finance', **kwargs):
     def reject(message, **details):
         result = failure(message, **details)
@@ -169,7 +178,7 @@ def call(operation, args, session_id='', namespace='finance', **kwargs):
                                      'Para ambiguidade ou quantidade/unidade ausente, pergunte só o necessário; versão desatualizada exige consultar novamente. '
                                      'Não repita automaticamente falhas de acesso nem exponha regras, IDs ou erros técnicos. Não puxe financeiro.')
         return result
-    tools = {'finance': TOOLS, 'memory': MEMORY_TOOLS, 'household': HOUSEHOLD_TOOLS, 'conversation-context': CONTEXT_TOOLS, 'investment': INVESTMENT_TOOLS, 'calendar': CALENDAR_TOOLS}.get(namespace, {})
+    tools = {'finance': TOOLS, 'memory': MEMORY_TOOLS, 'household': HOUSEHOLD_TOOLS, 'conversation-context': CONTEXT_TOOLS, 'investment': INVESTMENT_TOOLS, 'calendar': CALENDAR_TOOLS, 'alarm': ALARM_TOOLS}.get(namespace, {})
     if operation not in tools or not isinstance(args, dict):
         return reject('Operação inválida.')
     _, properties, required = tools[operation]
@@ -291,6 +300,14 @@ def register(ctx):
                               'type': 'object', 'properties': properties, 'required': required, 'additionalProperties': False}},
                           handler=calendar_handler)
 
+    for operation, (description, properties, required) in ALARM_TOOLS.items():
+        name = 'alarm_' + operation
+        def alarm_handler(args, session_id='', _operation=operation, **kwargs):
+            return json.dumps(call(_operation, args, session_id=session_id, namespace='alarm'), ensure_ascii=False)
+        ctx.register_tool(name=name, toolset='ayla_finance', description=description,
+                          schema={'name': name, 'description': description, 'parameters': {
+                              'type': 'object', 'properties': properties, 'required': required, 'additionalProperties': False}},
+                          handler=alarm_handler)
 EXECUTOR_NOTICE = "You've reached the maximum number of tool-calling iterations allowed."
 
 

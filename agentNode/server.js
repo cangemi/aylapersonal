@@ -56,6 +56,11 @@ function createApp({ manager, repository, registry, apiKey }) {
             return next(Object.assign(new Error('Lembrete inválido'),{status:400}));
         next();
     }, scoped(async ({manager},req,res)=>res.json(await manager.sendCalendarReminder(req.body.id))));
+    app.post('/internal/alarm-notification', (req,res,next) => {
+        if(!req.body || Object.keys(req.body).some(key=>key!=='id') || !/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(req.body.id||''))
+            return next(Object.assign(new Error('Alarme inválido'),{status:400}));
+        next();
+    }, scoped(async ({manager},req,res)=>res.json(await manager.sendAlarmNotification(req.body.id))));
     app.post('/internal/password-recovery', (req, res, next) => {
         const body=req.body;
         if(!body || Array.isArray(body) || Object.keys(body).some(k=>!['userId','registeredNumber','password','requestId'].includes(k))
