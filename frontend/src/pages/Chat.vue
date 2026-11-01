@@ -157,8 +157,7 @@ async function resumeQueued(conversation) {
         !(list.at(-1)?.role === 'assistant' && list.at(-1)?.text === result.response)
       )
         list.push({ role: 'assistant', text: result.response, audio: result.audio, jobId: job.id })
-        if (document.hidden && typeof Notification !== 'undefined' && Notification.permission === 'granted')
-          new Notification('Ayla', { body: result.response })
+        // Notificações são enviadas por Web Push pelo backend para evitar duplicidade.
       await acknowledgeChatJob(job.id)
     }
     await bottom()
@@ -361,6 +360,12 @@ async function send() {
           audio: result.audio,
           jobId: result.jobId,
         })
+      if (
+        auth.session?.user?.id === owner &&
+        typeof Notification !== 'undefined' &&
+        Notification.permission === 'granted'
+      )
+        new Notification('Ayla', { body: result.response })
       await acknowledgeChatJob(result.jobId)
     } catch (e) {
       if (destroyed || e.name === 'AbortError') return

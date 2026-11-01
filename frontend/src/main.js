@@ -7,10 +7,30 @@ import '@fontsource/kodchasan/700.css'
 import './style.css'
 import './mobile.css'
 createApp(App).use(router).mount('#app')
+if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+  const requestPermission = () => {
+    try {
+      Notification.requestPermission().catch(() => {})
+    } catch {
+      // Some browsers only allow permission requests after a user interaction.
+    }
+  }
+  requestPermission()
+  for (const event of ['pointerdown', 'keydown', 'touchstart']) {
+    window.addEventListener(
+      event,
+      () => {
+        if (Notification.permission === 'default') requestPermission()
+      },
+      { once: true, passive: true },
+    )
+  }
+}
 if (import.meta.env.PROD && 'serviceWorker' in navigator && window.isSecureContext) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
       .register('/sw.js', { updateViaCache: 'none' })
+      .then((registration) => registration.update().catch(() => {}))
       .catch(() => console.info('Instalação da Ayla indisponível neste navegador ou certificado.'))
   })
 }

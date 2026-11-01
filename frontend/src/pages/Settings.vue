@@ -1,7 +1,8 @@
 <script setup>
 import PasswordInput from '../components/PasswordInput.vue'
-import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { api, auth, setSession, query } from '../lib/api'
+import { subscribePush, unsubscribePush, currentPushSubscription } from '../lib/push'
 import { timestamp } from '../lib/format'
 import { useRouter, useRoute } from 'vue-router'
 import { toast, confirmAction } from '../lib/ui'
@@ -313,7 +314,116 @@ function refreshSettings() {
   error.value = ''
   load()
 }
-onMounted(load)
+function permissionLabel() {
+  if (typeof Notification === 'undefined') return 'Não suportado neste navegador'
+  if (Notification.permission === 'granted') return 'Permitidas'
+  if (Notification.permission === 'denied') return 'Bloqueadas'
+  return 'Aguardando liberação'
+}
+const notificationStatus = ref(permissionLabel())
+const siteOrigin = window.location.origin
+const notificationBlocked = computed(
+  () => typeof Notification !== 'undefined' && Notification.permission === 'denied',
+)
+const notificationHelpOpen = ref(false)
+
+const pushEnabled = ref(false)
+const pushBusy = ref(false)
+const pushStatus = ref('Desativadas')
+
+async function loadPushState() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    pushStatus.value = 'Não suportado neste navegador'
+    return
+  }
+  try {
+    const preference = await api('/push/preferences')
+    let subscription = null
+    try {
+      subscription = await Promise.race([
+        currentPushSubscription(),
+        new Promise((resolve) => setTimeout(() => resolve(null), 2000)),
+      ])
+    } catch {
+      subscription = null
+    }
+    pushEnabled.value = Boolean(preference.enabled && subscription)
+    pushStatus.value = pushEnabled.value
+      ? 'Ativadas neste aparelho'
+      : 'Desativadas neste aparelho'
+  } catch {
+    pushStatus.value = 'Indisponível'
+  }
+}
+async function togglePush() {
+  pushBusy.value = true
+  try {
+    if (!pushEnabled.value) {
+      if (typeof Notification === 'undefined') throw new Error('Notificações não suportadas.')
+      const permission = await Notification.requestPermission()
+      if (permission !== 'granted') {
+        notificationHelpOpen.value = true
+        throw new Error('Permissão de notificação não concedida.')
+      }
+      await subscribePush()
+      await api('/push/preferences', { method: 'PUT', body: { enabled: true } })
+      pushEnabled.value = true
+      pushStatus.value = 'Ativadas neste aparelho'
+      toast('Notificações push ativadas!')
+    } else {
+      await unsubscribePush()
+      await api('/push/preferences', { method: 'PUT', body: { enabled: false } }).catch(() => {})
+      pushEnabled.value = false
+      pushStatus.value = 'Desativadas neste aparelho'
+      toast('Notificações push desativadas.')
+    }
+  } catch (e) {
+    toast(e.message, 'error')
+  } finally {
+    pushBusy.value = false
+  }
+}
+async function sendTestPush() {
+  pushBusy.value = true
+  try {
+    await api('/push/test', { method: 'POST' })
+    toast('Notificação de teste enviada.')
+  } catch (e) {
+    toast(e.message, 'error')
+  } finally {
+    pushBusy.value = false
+  }
+}
+
+async function enableNotifications() {
+  if (typeof Notification === 'undefined' || !('requestPermission' in Notification)) {
+    toast('Este navegador não suporta notificações.', 'error')
+    return
+  }
+  try {
+    await Notification.requestPermission()
+  } catch {
+    // Some browsers require a direct user gesture; the button already provides one.
+  }
+  notificationStatus.value = permissionLabel()
+  if (Notification.permission === 'granted') toast('Notificações liberadas!')
+  else if (Notification.permission === 'denied') {
+    notificationHelpOpen.value = true
+    try {
+      window.open(
+        'chrome://settings/content/siteDetails?site=' + encodeURIComponent(siteOrigin),
+        '_blank',
+      )
+    } catch {
+      // Browser security may block this; the in-app guide remains available.
+    }
+  }
+}
+onMounted(() => {
+  load()
+  notificationStatus.value = permissionLabel()
+  loadPushState()
+})
 </script>
 <template>
   <div class="page-heading">
@@ -430,6 +540,45 @@ onMounted(load)
         <button class="button secondary danger-text" :disabled="busy" @click="logoutAll">
           <Icon name="logout" :size="17" />Sair de todos os dispositivos
         </button>
+      </section>
+      <section class="panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Notificações deste aparelho</h2>
+            <p>Libere avisos quando a Ayla responder ou tiver alertas.</p>
+          </div>
+          <Icon name="bell" />
+        </div>
+        <p class="muted">Status: {{ notificationStatus }}</p>
+        <p v-if="notificationBlocked" class="muted">
+          Se o navegador bloqueou a permissão, abra as configurações do site neste navegador ou as
+          configurações de notificações do app/PWA neste aparelho e ative manualmente.
+        </p>
+        <div class="button-row">
+          <button type="button" class="button primary" @click="enableNotifications">
+            <Icon name="bell" :size="17" />Liberar notificações
+          </button>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Notificações push da Ayla</h2>
+            <p>Receba avisos mesmo com o app fechado, quando suportado.</p>
+          </div>
+          <Icon name="sparkles" />
+        </div>
+        <p class="muted">Status: {{ pushStatus }}</p>
+        <div class="button-row">
+          <button type="button" class="button primary" :disabled="pushBusy" @click="togglePush">
+            <Icon name="bell" :size="17" />{{
+              pushEnabled ? 'Desativar notificações push' : 'Ativar notificações push'
+            }}
+          </button>
+          <button type="button" class="button secondary" :disabled="pushBusy" @click="sendTestPush">
+            <Icon name="send" :size="17" />Enviar notificação de teste
+          </button>
+        </div>
       </section>
     </div>
   </div>
@@ -706,5 +855,24 @@ onMounted(load)
         </button>
       </div>
     </form>
+  </Modal>
+  <Modal v-if="notificationHelpOpen" title="Liberar notificações" @close="notificationHelpOpen = false">
+    <p>
+      Este navegador marcou as notificações como bloqueadas. Reative a permissão nas
+      configurações do site:
+    </p>
+    <p class="muted">Site: {{ siteOrigin }}</p>
+    <p class="muted">
+      Chrome/Edge: abra as configurações de notificações do site e permita
+      <strong>{{ siteOrigin }}</strong>.
+    </p>
+    <p class="muted">
+      Android: Ajustes do aparelho → Apps → Ayla/Chrome → Notificações → ativar.
+    </p>
+    <div class="form-actions">
+      <button type="button" class="button primary" @click="notificationHelpOpen = false">
+        Entendi
+      </button>
+    </div>
   </Modal>
 </template>

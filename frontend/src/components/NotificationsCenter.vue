@@ -88,8 +88,8 @@ async function load() {
       api('/calendar/reminders').catch(() => []),
       api('/alarms/notifications').catch(() => []),
     ])
-    reminders.value = calendarItems
-    alarms.value = alarmItems
+    reminders.value = Array.isArray(calendarItems) ? calendarItems : []
+    alarms.value = Array.isArray(alarmItems) ? alarmItems : []
   } catch {
     /* Keep previous counters when offline. */
   } finally {
@@ -156,7 +156,8 @@ onBeforeUnmount(() => {
   position: absolute;
   right: 0;
   top: calc(100% + .5rem);
-  width: min(360px, 90vw);
+  width: min(360px, calc(100vw - 1rem));
+  max-width: calc(100vw - 1rem);
   max-height: 60vh;
   overflow: auto;
   z-index: 50;
@@ -165,6 +166,16 @@ onBeforeUnmount(() => {
   background: var(--surface, rgba(20, 20, 24, .96));
   border: 1px solid var(--border, rgba(255, 255, 255, .1));
   box-shadow: 0 18px 48px rgba(0, 0, 0, .35);
+}
+@media (max-width: 900px) {
+  .notification-dropdown {
+    position: fixed;
+    top: calc(62px + .5rem);
+    right: .5rem;
+    left: .5rem;
+    width: auto;
+    max-width: none;
+  }
 }
 .notification-dropdown-head {
   display: flex;

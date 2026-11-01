@@ -14,10 +14,15 @@ function available(event) {
   event.preventDefault()
   prompt.value = event
 }
+function requestNotifications() {
+  if (typeof Notification === 'undefined' || !('requestPermission' in Notification)) return
+  if (Notification.permission === 'default') Notification.requestPermission().catch(() => {})
+}
 function complete() {
   installed.value = true
   open.value = false
   prompt.value = null
+  requestNotifications()
 }
 function modeChanged(event) {
   if (event.matches) complete()
@@ -44,6 +49,7 @@ onMounted(() => {
   window.addEventListener('beforeinstallprompt', available)
   window.addEventListener('appinstalled', complete)
   standalone.addEventListener('change', modeChanged)
+  if (installed.value) requestNotifications()
 })
 onBeforeUnmount(() => {
   window.removeEventListener('beforeinstallprompt', available)

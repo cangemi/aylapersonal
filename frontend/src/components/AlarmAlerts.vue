@@ -13,10 +13,11 @@ async function load() {
   if (!user) return
   try {
     const result = await api('/alarms/notifications')
+    const items = Array.isArray(result) ? result : []
     if (alive && current === revision && user === auth.session?.user?.id) {
-      count.value = result.length
+      count.value = items.length
       if (Notification.permission === 'granted') {
-        for (const item of result) {
+        for (const item of items) {
           if (!seen.has(item.id)) {
             seen.add(item.id)
             new Notification(item.title || 'Alarme', { body: item.dueAt })

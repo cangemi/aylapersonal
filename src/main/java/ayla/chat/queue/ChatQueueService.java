@@ -27,11 +27,14 @@ public class ChatQueueService {
     private final ExecutorService executor=Executors.newVirtualThreadPerTaskExecutor();
     private final ConcurrentMap<UUID,ChatQueueStore.Work> active=new ConcurrentHashMap<>();
     private ayla.hermes.HermesClient hermes;
+    private ayla.push.PushService push;
     private ayla.monitoring.MonitoringService monitoring;
     @org.springframework.beans.factory.annotation.Autowired
     public void setMonitoring(ayla.monitoring.MonitoringService monitoring){this.monitoring=monitoring;}
     @org.springframework.beans.factory.annotation.Autowired
     public void setHermes(ayla.hermes.HermesClient hermes){this.hermes=hermes;}
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setPush(ayla.push.PushService push){this.push=push;}
     public ChatQueueService(ChatQueueStore store,ConversationService conversations,ChatService chat,
             @Value("${ayla.cluster.max-concurrent-chats:3}") int limit){
         this.store=store;this.conversations=conversations;this.chat=chat;this.slots=new Semaphore(limit);
@@ -83,7 +86,9 @@ public class ChatQueueService {
         try(var context=new ChatJobContext(()->store.dispatched(work),()->store.admissionRejected(work))){
             try {
                 if(!store.allowed(work)){store.finish(work,"CANCELLED",null,"Este pedido foi cancelado porque o acesso à conversa foi desativado.");return;}
-                store.finish(work,"COMPLETED",chat.chat(store.request(work),work.userId()),null);
+                var chatResponse=chat.chat(store.request(work),work.userId());
+                store.finish(work,"COMPLETED",chatResponse,null);
+                if(push!=null)push.notifyAsync(work.userId(),work.conversationId(),chatResponse.response());
                 event(work,started,200,null);
             } catch(RuntimeException error){
                 boolean temporary=error instanceof ayla.cluster.OperationBusyException
