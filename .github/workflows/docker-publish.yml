@@ -433,7 +433,67 @@ jobs:
 
           echo "WhatsApp healthy."
 
-          # PHASE 4: REMAINING SERVICES
+          # PHASE 4: HERMES (bind-mounted plugin changes do not trigger Compose recreation)
+
+          echo "Recreating Hermes to synchronize managed plugins and SOUL.md..."
+
+          compose up \
+            -d \
+            --no-build \
+            --no-deps \
+            --force-recreate \
+            hermes
+
+          echo "Waiting for Hermes healthcheck..."
+          HERMES_READY=false
+          for i in $(seq 1 60); do
+            STATUS="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' ayla-hermes)"
+            if [[ "$STATUS" == "healthy" ]]; then
+              HERMES_READY=true
+              break
+            fi
+            if [[ "$STATUS" == "unhealthy" ]]; then
+              echo "Hermes is unhealthy (attempt $i/60)."
+            fi
+            sleep 3
+          done
+
+          if [[ "$HERMES_READY" != "true" ]]; then
+            echo "ERROR: Hermes healthcheck timeout."
+            compose logs --tail 150 hermes
+            exit 1
+          fi
+
+          echo "Validating Hermes managed plugin synchronization..."
+          for plugin in ayla-finance ayla-research; do
+            for filename in __init__.py plugin.yaml; do
+              source="docker/hermes/plugins/$plugin/$filename"
+              if [[ ! -f "$source" ]]; then
+                echo "ERROR: Missing managed plugin source: $source"
+                exit 1
+              fi
+              expected="$(sha256sum "$source" | awk '{print $1}')"
+              count=0
+              while IFS= read -r -d '' installed; do
+                actual="$(docker exec ayla-hermes sha256sum "$installed" | awk '{print $1}')"
+                if [[ "$actual" != "$expected" ]]; then
+                  echo "ERROR: Outdated Hermes plugin: $installed"
+                  exit 1
+                fi
+                count=$((count + 1))
+              done < <(docker exec ayla-hermes find /opt/data/plugins /opt/data/profiles \
+                -path "*/plugins/$plugin/$filename" -type f -print0)
+              if [[ "$count" -eq 0 ]]; then
+                echo "ERROR: No installed copies found for $plugin/$filename"
+                exit 1
+              fi
+              echo "Verified $plugin/$filename ($count copies)."
+            done
+          done
+
+          echo "Hermes healthy and plugins synchronized."
+
+          # PHASE 5: REMAINING SERVICES
 
           echo "Updating remaining services..."
 
