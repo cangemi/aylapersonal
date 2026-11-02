@@ -34,16 +34,26 @@ public class ProactiveMessageService {
         }
     }
 
-    public List<ConversationHistory.Message> listByUser(String user, int limit) {
+    public List<ConversationHistory.Message> listByUser(String user, UUID conversationId, int limit) {
         List<ConversationHistory.Message> result = new ArrayList<>();
         if (user == null || limit < 1) return result;
+        if (limit > 20) limit = 20;
         try {
-            jdbc.query("select id,text from proactive_messages where user_id=? order by created_at asc limit ?",
+            String sql = "select id,text from proactive_messages where user_id=?";
+            List<Object> args = new ArrayList<>();
+            args.add(user);
+            if (conversationId != null) {
+                sql += " and (conversation_id is null or conversation_id=?)";
+                args.add(conversationId);
+            }
+            sql += " order by created_at asc limit ?";
+            args.add(limit);
+            jdbc.query(sql,
                     (r, n) -> {
                         result.add(new ConversationHistory.Message("proactive:" + r.getObject("id", UUID.class),
                                 "assistant", r.getString("text"), List.of()));
                         return null;
-                    }, user, limit);
+                    }, args.toArray());
         } catch (RuntimeException ignored) {
         }
         return result;

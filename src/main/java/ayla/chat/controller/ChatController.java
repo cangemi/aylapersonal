@@ -26,10 +26,13 @@ public class ChatController {
     private final ayla.chat.session.ChatIdentity identity;
 
     private final ayla.whatsapp.WhatsappAccess whatsapp;
+    private ayla.alarm.AlarmService alarms;
     private ayla.chat.queue.ChatQueueService queue;
     private ayla.chat.queue.ChatQueueStore jobs;
     @org.springframework.beans.factory.annotation.Autowired
     public void setQueue(ayla.chat.queue.ChatQueueService queue,ayla.chat.queue.ChatQueueStore jobs){this.queue=queue;this.jobs=jobs;}
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setAlarms(ayla.alarm.AlarmService alarms){this.alarms=alarms;}
     @org.springframework.beans.factory.annotation.Autowired
     public ChatController(ChatService chatService, ayla.chat.session.ChatIdentity identity, ayla.whatsapp.WhatsappAccess whatsapp) {
         this.chatService=chatService;this.identity=identity;this.whatsapp=whatsapp;
@@ -61,6 +64,26 @@ public class ChatController {
                              @org.springframework.web.bind.annotation.RequestHeader(value="Idempotency-Key",required=false) String requestKey,
                              @org.springframework.web.bind.annotation.RequestHeader(value="Prefer",defaultValue="") String prefer,
                              @Parameter(hidden=true) @org.springframework.web.bind.annotation.RequestHeader(value="X-Ayla-WhatsApp-Generation",required=false) String generation) {
+        String normalizedMessage = request.message() == null ? "" : request.message().trim().toLowerCase(java.util.Locale.ROOT);
+        boolean hasMedia = (request.images()!=null && !request.images().isEmpty())
+                || (request.audios()!=null && !request.audios().isEmpty())
+                || (request.documents()!=null && !request.documents().isEmpty());
+        boolean alarmConfirmPhrase = normalizedMessage.equals("ok") || normalizedMessage.equals("ok!") || normalizedMessage.equals("okay");
+        boolean interceptAlarmConfirmation = !hasMedia && alarmConfirmPhrase && alarms != null;
+        if (interceptAlarmConfirmation) {
+            String user = null;
+            try {
+                if (whatsappChat != null) user = whatsapp.resolve(authorization,whatsappChat,generation).userId();
+                else user = identity.resolve(principal);
+            } catch (RuntimeException ignored) { user = null; }
+            if (user != null) {
+                var pending = alarms.pendingConfirmations(user);
+                if (!pending.isEmpty()) {
+                    for (var alarm : pending) alarms.confirm(user, alarm.id());
+                    return new ayla.chat.dto.ChatResponse("Alarme confirmado.", request.sessionId(), request.conversationId());
+                }
+            }
+        }
         if (whatsappChat!=null) {
             if (whatsapp==null) throw new ayla.whatsapp.WhatsappException(503,"Integração WhatsApp não configurada.");
             var access=whatsapp.resolve(authorization,whatsappChat,generation);

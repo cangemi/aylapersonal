@@ -40,6 +40,9 @@ public class AlarmService {
     public List<Alarm> list(String user) {
         return jdbc.query("select * from alarms where user_id=? order by active desc, created_at desc", ROW, user);
     }
+    public List<Alarm> pendingConfirmations(String user) {
+        return list(user).stream().filter(Alarm::confirmPending).toList();
+    }
 
     public Alarm get(String user, UUID id) {
         return jdbc.query("select * from alarms where user_id=? and id=?", ROW, user, id).stream().findFirst()

@@ -112,21 +112,7 @@
     </ul>
   </section>
 
-  <section v-if="notifications.length" class="panel">
-    <div class="section-heading">
-      <h2>Alertas recentes <span class="count">{{ notifications.length }}</span></h2>
-    </div>
-    <ul class="notification-list">
-      <li v-for="item in notifications" :key="item.id">
-        <Icon name="bell" :size="16" />
-        <div>
-          <strong>{{ item.title }}</strong>
-          <span class="muted">{{ item.dueAt }}</span>
-        </div>
-        <button class="button secondary" @click="readNotification(item)">Marcar lido</button>
-      </li>
-    </ul>
-  </section>
+
 
   <div class="tip-strip">
     <Icon name="chat" :size="20" />
@@ -143,7 +129,6 @@ import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
 
 const alarms = ref([]),
-  notifications = ref([]),
   loading = ref(false),
   error = ref(''),
   saving = ref(false),
@@ -165,12 +150,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [alarmResult, notificationResult] = await Promise.all([
-      api('/alarms'),
-      api('/alarms/notifications'),
-    ])
-    alarms.value = alarmResult
-    notifications.value = notificationResult
+    alarms.value = await api('/alarms')
   } catch (e) {
     error.value = e.message
   } finally {
@@ -283,14 +263,6 @@ async function confirmAlarm(alarm) {
   }
 }
 
-async function readNotification(item) {
-  try {
-    await api(`/alarms/notifications/${item.id}/read`, { method: 'POST' })
-    await load()
-  } catch (e) {
-    toast(e.message, 'error')
-  }
-}
 
 onMounted(load)
 </script>

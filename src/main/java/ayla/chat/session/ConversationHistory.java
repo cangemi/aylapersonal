@@ -25,7 +25,7 @@ public class ConversationHistory {
         try {
             response=hermes.get(selected.profile(),"/api/sessions/"+selected.sessionId()+"/messages?limit="+limit+"&offset="+offset+"&order=latest&include_compacted=true");
         } catch(HermesException error) {
-            var proactiveMessages=proactive==null?List.<Message>of():proactive.listByUser(user,50);
+            var proactiveMessages=proactive==null?List.<Message>of():proactive.listByUser(user,conversation,5);
             if(error.status()==404 && proactiveMessages.isEmpty()) return new Page(List.of(),false,offset); // Session is created only on the first message.
             if(!proactiveMessages.isEmpty()) return new Page(proactiveMessages,false,offset);
             throw error;
@@ -47,8 +47,13 @@ public class ConversationHistory {
             visible.add(new Message(id,role,text,List.copyOf(files)));
         }
         if (offset == 0 && proactive != null) {
-            for (Message proactiveMessage : proactive.listByUser(user, 50)) {
-                if (visible.stream().noneMatch(message -> message.id().equals(proactiveMessage.id()))) visible.add(proactiveMessage);
+            int alreadyProactive = (int) visible.stream().filter(m -> m.id().startsWith("proactive:")).count();
+            int remaining = Math.max(0, 5 - alreadyProactive);
+            if (remaining > 0) {
+                var proactiveMessages = proactive.listByUser(user, conversation, remaining);
+                for (Message proactiveMessage : proactiveMessages) {
+                    if (visible.stream().noneMatch(message -> message.id().equals(proactiveMessage.id()))) visible.add(proactiveMessage);
+                }
             }
         }
         return new Page(List.copyOf(visible),rows.size()==limit,offset+rows.size());
