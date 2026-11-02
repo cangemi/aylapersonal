@@ -124,9 +124,9 @@ public class PushService {
                     jdbc.update("update push_delivery_receipts set status=?, delivered_at=now() where event_id=? and endpoint=?",
                             "EXPIRED", eventId, endpoint);
                 }
-                log.info("Inscricao push expirada removida: {}", endpoint);
+                log.info("Inscricao push expirada removida (HTTP 404/410).");
             } catch (Exception error) {
-                log.warn("Falha push {}: {}", endpoint, error.getMessage());
+                log.warn("Falha push: {}", error.getMessage());
                 if (eventId != null && !eventId.isBlank()) {
                     jdbc.update("update push_delivery_receipts set status=?, delivered_at=now() where event_id=? and endpoint=?",
                             "FAILED", eventId, endpoint);
@@ -200,10 +200,34 @@ public class PushService {
                 .timeout(Duration.ofSeconds(15))
                 .build();
 
-        HttpResponse<Void> response = http.send(request, HttpResponse.BodyHandlers.discarding());
+        HttpResponse<String> response = http.send(request,
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
         int status = response.statusCode();
+        if (status >= 200 && status < 300) {
+            log.info("Web Push aceito pelo provedor: HTTP {}", status);
+            return;
+        }
         if (status == 410 || status == 404) throw new PushExpiredException(status);
-        if (status < 200 || status >= 300) throw new RuntimeException("HTTP " + status);
+
+        // A resposta do provedor pode conter dados sensíveis: não registrar o corpo bruto.
+        // Extrair somente indicadores conhecidos para facilitar o diagnóstico do HTTP 403.
+        String diagnostic = safeProviderDiagnostic(response.body());
+        log.warn("Web Push rejeitado pelo provedor: HTTP {} | diagnostico={}", status, diagnostic);
+        throw new RuntimeException("HTTP " + status + " (" + diagnostic + ")");
+    }
+
+    private static String safeProviderDiagnostic(String body) {
+        if (body == null || body.isBlank()) return "resposta sem corpo";
+        String normalized = body.toLowerCase(Locale.ROOT);
+        if (normalized.contains("unauthorizedregistration")) return "UnauthorizedRegistration";
+        if (normalized.contains("invalidregistration")) return "InvalidRegistration";
+        if (normalized.contains("mismatchsenderid")) return "MismatchSenderId";
+        if (normalized.contains("invalidvapid") || normalized.contains("invalid vapid")) return "InvalidVapid";
+        if (normalized.contains("vapid")) return "erro relacionado a VAPID";
+        if (normalized.contains("authentication")) return "erro de autenticacao";
+        if (normalized.contains("permission")) return "erro de permissao";
+        if (normalized.contains("not found")) return "recurso nao encontrado";
+        return "resposta nao classificada (" + body.length() + " caracteres)";
     }
 
     private String createVapidJwt(String audience) throws Exception {
