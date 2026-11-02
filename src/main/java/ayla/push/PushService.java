@@ -77,38 +77,66 @@ public class PushService {
     }
 
     public void sendTest(String user) {
-        notify(user, null, "Notificação de teste da Ayla.");
+        notify(user, null, "Notificacao de teste da Ayla.", "test:" + user);
     }
 
     public void notifyAsync(String user, UUID conversationId, String response) {
+        notifyAsync(user, conversationId, response, null);
+    }
+    public void notifyAsync(String user, UUID conversationId, String response, String eventId) {
         executor.submit(() -> {
-            try { notify(user, conversationId, response); }
-            catch (Throwable error) { log.warn("Falha ao enviar push para {}: {}", user, error.getMessage()); }
+            try { notify(user, conversationId, response, eventId); }
+            catch (Throwable error) { log.warn("Falha ao enviar push: {}", error.getMessage()); }
         });
     }
 
-    private void notify(String user, UUID conversationId, String response) {
+    private void notify(String user, UUID conversationId, String response, String eventId) {
         if (!preferenceEnabled(user)) return;
         String preview = response == null ? "" : response.replace("\n", " ").trim();
         if (preview.length() > 150) preview = preview.substring(0, 147) + "...";
         List<Map<String, Object>> rows = jdbc.queryForList(
                 "select endpoint,p256dh,auth from " + TABLE_SUBS + " where user_id=? and enabled=true", user);
         for (Map<String, Object> row : rows) {
+            String endpoint = String.valueOf(row.get("endpoint"));
+            if (eventId != null && !eventId.isBlank()) {
+                try {
+                    int reserved = jdbc.update(
+                            "insert into push_delivery_receipts(event_id, endpoint, status) values (?,?,?) on conflict (event_id, endpoint) do nothing",
+                            eventId, endpoint, "RESERVED");
+                    if (reserved <= 0) continue;
+                } catch (RuntimeException reserveError) {
+                    log.warn("Falha ao reservar push: {}", reserveError.getMessage());
+                    continue;
+                }
+            }
             try {
-                sendOne(String.valueOf(row.get("endpoint")), String.valueOf(row.get("p256dh")),
-                        String.valueOf(row.get("auth")), "Ayla", preview.isBlank() ? "Nova resposta disponível." : preview,
-                        conversationId == null ? "/chat" : "/chat");
+                sendOne(endpoint, String.valueOf(row.get("p256dh")),
+                        String.valueOf(row.get("auth")), "Ayla", preview.isBlank() ? "Nova resposta disponivel." : preview,
+                        conversationId == null ? "/chat" : "/chat?conversationId=" + conversationId.toString(),
+                        eventId == null ? null : eventId);
+                if (eventId != null && !eventId.isBlank()) {
+                    jdbc.update("update push_delivery_receipts set status=?, delivered_at=now() where event_id=? and endpoint=?",
+                            "SENT", eventId, endpoint);
+                }
             } catch (PushExpiredException expired) {
-                deleteSubscription(String.valueOf(row.get("endpoint")));
-                log.info("Inscrição push expirada removida: {}", row.get("endpoint"));
+                deleteSubscription(endpoint);
+                if (eventId != null && !eventId.isBlank()) {
+                    jdbc.update("update push_delivery_receipts set status=?, delivered_at=now() where event_id=? and endpoint=?",
+                            "EXPIRED", eventId, endpoint);
+                }
+                log.info("Inscricao push expirada removida: {}", endpoint);
             } catch (Exception error) {
-                log.warn("Falha push {}: {}", row.get("endpoint"), error.getMessage());
+                log.warn("Falha push {}: {}", endpoint, error.getMessage());
+                if (eventId != null && !eventId.isBlank()) {
+                    jdbc.update("update push_delivery_receipts set status=?, delivered_at=now() where event_id=? and endpoint=?",
+                            "FAILED", eventId, endpoint);
+                }
             }
         }
     }
 
     private void sendOne(String endpoint, String clientPublicKeyBase64, String authSecretBase64,
-            String title, String body, String url) throws Exception {
+            String title, String body, String url, String eventId) throws Exception {
         byte[] clientPublicKey = VapidKeys.base64UrlDecode(clientPublicKeyBase64);
         byte[] authSecret = VapidKeys.base64UrlDecode(authSecretBase64);
 
@@ -138,7 +166,8 @@ public class PushService {
         byte[] cek = hkdfExpand(prk, "Content-Encoding: aes128gcm\0".getBytes(StandardCharsets.UTF_8), 16);
         byte[] nonce = hkdfExpand(prk, "Content-Encoding: nonce\0".getBytes(StandardCharsets.UTF_8), 12);
 
-        String json = "{\"title\":\"" + escape(title) + "\",\"body\":\"" + escape(body) + "\",\"url\":\"" + escape(url) + "\"}";
+        String eventType = (eventId != null && eventId.startsWith("alarm:")) ? "ALARM" : "CHAT_RESPONSE";
+        String json = "{\"eventId\":\"" + escape(eventId) + "\",\"type\":\"" + eventType + "\",\"title\":\"" + escape(title) + "\",\"body\":\"" + escape(body) + "\",\"tag\":\"" + escape(eventId == null ? "ayla-response" : eventId) + "\",\"conversationId\":null,\"url\":\"" + escape(url) + "\"}";
         byte[] plaintext = json.getBytes(StandardCharsets.UTF_8);
         byte[] padded = new byte[plaintext.length + 1];
         System.arraycopy(plaintext, 0, padded, 0, plaintext.length);

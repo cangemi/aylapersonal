@@ -166,7 +166,7 @@ public class AlarmService {
         for (Alarm a : alarms) {
             UUID notif = UUID.randomUUID();
             jdbc.update("insert into alarm_notifications(id,alarm_id,user_id,due_at,notified_at) values (?,?,?,?,now())", notif, a.id(), findUser(a.id()), Timestamp.from(now));
-            recordProactiveMessage(a.id(), findUser(a.id()));
+            recordProactiveMessage(a.id(), findUser(a.id()), notif);
             updateAlarmFired(a, now, true);
         }
     }
@@ -201,7 +201,7 @@ public class AlarmService {
             UUID notif = UUID.randomUUID();
             String user = findUser(a.id());
             jdbc.update("insert into alarm_notifications(id,alarm_id,user_id,due_at,notified_at) values (?,?,?,?,now())", notif, a.id(), user, Timestamp.from(todayAt.toInstant()));
-             recordProactiveMessage(a.id(), user);
+             recordProactiveMessage(a.id(), user, notif);
             if (a.confirmNeeded()) {
                 jdbc.update("update alarms set last_fired_at=?,confirm_pending=true,next_snooze_at=? where id=?", Timestamp.from(now), Timestamp.from(now.plus(Duration.ofMinutes(5))), a.id());
             } else {
@@ -230,7 +230,7 @@ public class AlarmService {
             UUID notif = UUID.randomUUID();
             String user = findUser(a.id());
             jdbc.update("insert into alarm_notifications(id,alarm_id,user_id,due_at,notified_at) values (?,?,?,?,now())", notif, a.id(), user, Timestamp.from(todayAt.toInstant()));
-             recordProactiveMessage(a.id(), user);
+             recordProactiveMessage(a.id(), user, notif);
             if (a.confirmNeeded()) {
                 jdbc.update("update alarms set last_fired_at=?,confirm_pending=true,next_snooze_at=? where id=?", Timestamp.from(now), Timestamp.from(now.plus(Duration.ofMinutes(5))), a.id());
             } else {
@@ -247,12 +247,12 @@ public class AlarmService {
             String user = (String) row.get("user_id");
             UUID notif = UUID.randomUUID();
             jdbc.update("insert into alarm_notifications(id,alarm_id,user_id,due_at,notified_at,snooze) values (?,?,?,?,now(),true)", notif, alarmId, user, Timestamp.from(now));
-            recordProactiveMessage(alarmId, user);
+            recordProactiveMessage(alarmId, user, notif);
             jdbc.update("update alarms set next_snooze_at=? where id=?", Timestamp.from(now.plus(Duration.ofMinutes(5))), alarmId);
         }
     }
 
-    private void recordProactiveMessage(UUID alarmId, String user) {
+    private void recordProactiveMessage(UUID alarmId, String user, UUID notificationId) {
         if (proactive == null || alarmId == null || user == null) return;
         try {
             var row = jdbc.queryForMap("select title, confirm_needed from alarms where id=?", alarmId);
@@ -260,10 +260,10 @@ public class AlarmService {
             boolean confirm = Boolean.TRUE.equals(row.get("confirm_needed"));
             String text = "⏰ Alarme: " + title + (confirm ? "\nResponda \"ok\" para parar os lembretes a cada 5 minutos." : "");
             if (proactive != null) proactive.record(user, proactive.currentConversation(user).orElse(null), text, "alarm", alarmId);
-            if (push != null) push.notifyAsync(user, null, text);
         } catch (RuntimeException ignored) {
         }
     }
 
     static HermesException error(int status, String message) { return new HermesException(status, message); }
 }
+

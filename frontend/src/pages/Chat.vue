@@ -1,5 +1,6 @@
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { api, auth } from '../lib/api'
 import { transcripts } from '../lib/chatState'
 import {
@@ -14,6 +15,7 @@ import { marked } from 'marked'
 import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
 import PersonalChatDialog from '../components/PersonalChatDialog.vue'
+const route = useRoute()
 const personalChatOpen = ref(false)
 const conversationPicker = ref(false)
 const composerInput = ref(null)
@@ -119,16 +121,22 @@ async function load() {
     conversations.value = (await api('/conversations')).filter(
       (conversation) => !deletedConversations.has(conversation.conversationId),
     )
-    active.value =
-      (
-        conversations.value.find((c) => c.conversationId === active.value) ||
-        conversations.value.find((c) => c.current) ||
-        conversations.value[0]
-      )?.conversationId || null
     error.value = ''
-    if (active.value) {
-      await loadMessages(active.value)
-      await resumeQueued(active.value)
+    const targetId = typeof route.query.conversationId === 'string' ? route.query.conversationId : ''
+    const wanted = conversations.value.find((c) => c.conversationId === targetId)
+    if (wanted) {
+      await select(wanted)
+    } else {
+      active.value =
+        (
+          conversations.value.find((c) => c.conversationId === active.value) ||
+          conversations.value.find((c) => c.current) ||
+          conversations.value[0]
+        )?.conversationId || null
+      if (active.value) {
+        await loadMessages(active.value)
+        await resumeQueued(active.value)
+      }
     }
   } catch (e) {
     error.value = e.message
@@ -497,6 +505,16 @@ async function record() {
     toast(e.message || 'Não foi possível acessar o microfone.', 'error')
   }
 }
+watch(
+  () => route.query.conversationId,
+  (next) => {
+    if (destroyed) return
+    const targetId = typeof next === 'string' ? next : ''
+    const wanted = conversations.value.find((c) => c.conversationId === targetId)
+    if (wanted) select(wanted)
+  },
+)
+
 onMounted(() => {
   load()
   updateViewport()

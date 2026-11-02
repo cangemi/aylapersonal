@@ -32,7 +32,8 @@ self.addEventListener('push', (event) => {
     body: data.body || 'Nova resposta disponível.',
     icon: '/ayla-192.png',
     badge: '/favicon-32.png',
-    tag: data.tag || 'ayla-response',
+    tag: data.tag || data.eventId || 'ayla-response',
+    renotify: false,
     data: { url: target },
   }
   event.waitUntil(
@@ -45,11 +46,32 @@ self.addEventListener('push', (event) => {
 })
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
-  const target = (event.notification.data && event.notification.data.url) || '/chat'
+  let target = (event.notification.data && event.notification.data.url) ? String(event.notification.data.url) : '/chat'
+  let url
+  try {
+    url = new URL(target, self.location.origin)
+  } catch {
+    url = new URL('/chat', self.location.origin)
+  }
+  if (url.origin !== self.location.origin || !url.pathname.startsWith('/chat')) {
+    url = new URL('/chat', self.location.origin)
+  }
+  if (event.notification.data && event.notification.data.conversationId) {
+    url.searchParams.set('conversationId', String(event.notification.data.conversationId))
+  }
+  target = url.pathname + url.search + url.hash
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
       for (const client of clients) {
-        if (client.url.includes(target) && 'focus' in client) return client.focus()
+        try {
+          const clientUrl = new URL(client.url)
+          if (clientUrl.origin === self.location.origin && 'focus' in client) {
+            if ('navigate' in client) return client.navigate(target).then(() => client.focus())
+            return client.focus()
+          }
+        } catch {
+          // Ignore malformed client URLs.
+        }
       }
       if (self.clients.openWindow) return self.clients.openWindow(target)
     }),

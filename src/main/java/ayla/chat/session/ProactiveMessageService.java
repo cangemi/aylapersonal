@@ -2,6 +2,7 @@ package ayla.chat.session;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import ayla.push.PushService;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.*;
@@ -10,13 +11,16 @@ import java.util.UUID;
 @Service
 public class ProactiveMessageService {
     private final JdbcTemplate jdbc;
+    private ayla.push.PushService push;
     public ProactiveMessageService(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setPush(PushService push) { this.push = push; }
 
     public java.util.Optional<UUID> currentConversation(String user) {
         try {
             List<UUID> ids = jdbc.query("select current_conversation_id from chat_users where user_id=?", (r, n) -> r.getObject("current_conversation_id", UUID.class), user);
             if (!ids.isEmpty() && ids.get(0) != null) return Optional.of(ids.get(0));
-            List<UUID> fallback = jdbc.query("select id from chat_conversations where user_id=? order by updated_at desc, created_at desc limit 1",
+            List<UUID> fallback = jdbc.query("select id from chat_conversations where user_id=? order by created_at desc limit 1",
                     (r, n) -> r.getObject("id", UUID.class), user);
             return fallback.isEmpty() ? Optional.empty() : Optional.of(fallback.get(0));
         } catch (RuntimeException error) {
@@ -26,9 +30,14 @@ public class ProactiveMessageService {
 
     public void record(String user, UUID conversation, String text, String source, UUID sourceId) {
         if (user == null || conversation == null || text == null || text.isBlank()) return;
+        UUID id = UUID.randomUUID();
         try {
-            jdbc.update("insert into proactive_messages(id,user_id,conversation_id,role,text,source,source_id,created_at) values (?,?,?,?,?,?,?,?)",
-                    UUID.randomUUID(), user, conversation, "assistant", text, source, sourceId, Timestamp.from(Instant.now()));
+            int inserted = jdbc.update("insert into proactive_messages(id,user_id,conversation_id,role,text,source,source_id,created_at) values (?,?,?,?,?,?,?,?)",
+                    id, user, conversation, "assistant", text, source, sourceId, Timestamp.from(Instant.now()));
+            if (inserted > 0 && push != null && "alarm".equals(source)) {
+                String eventId = "alarm:" + (sourceId == null ? id : sourceId) + ":" + id;
+                push.notifyAsync(user, conversation, text, eventId);
+            }
         } catch (RuntimeException ignored) {
             // Proactive delivery must never block the primary flow.
         }

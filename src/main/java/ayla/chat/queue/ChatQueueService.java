@@ -88,7 +88,7 @@ public class ChatQueueService {
                 if(!store.allowed(work)){store.finish(work,"CANCELLED",null,"Este pedido foi cancelado porque o acesso à conversa foi desativado.");return;}
                 var chatResponse=chat.chat(store.request(work),work.userId());
                 store.finish(work,"COMPLETED",chatResponse,null);
-                if(push!=null)push.notifyAsync(work.userId(),work.conversationId(),chatResponse.response());
+                if(push!=null)push.notifyAsync(work.userId(),work.conversationId(),chatResponse.response(),"chat-response:"+work.id());
                 event(work,started,200,null);
             } catch(RuntimeException error){
                 boolean temporary=error instanceof ayla.cluster.OperationBusyException
