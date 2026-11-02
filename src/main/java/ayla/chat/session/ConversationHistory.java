@@ -10,8 +10,9 @@ import ayla.chat.service.SpontaneousVoice;
 public class ConversationHistory {
     private final ConversationService conversations;
     private final HermesClient hermes;
-    public ConversationHistory(ConversationService conversations,HermesClient hermes) {
-        this.conversations=conversations;this.hermes=hermes;
+    private final ProactiveMessageService proactive;
+    public ConversationHistory(ConversationService conversations,HermesClient hermes,ProactiveMessageService proactive) {
+        this.conversations=conversations;this.hermes=hermes;this.proactive=proactive;
     }
     public record Attachment(String name,String kind) {}
     public record Message(String id,String role,String text,List<Attachment> files) {}
@@ -24,7 +25,9 @@ public class ConversationHistory {
         try {
             response=hermes.get(selected.profile(),"/api/sessions/"+selected.sessionId()+"/messages?limit="+limit+"&offset="+offset+"&order=latest&include_compacted=true");
         } catch(HermesException error) {
-            if(error.status()==404)return new Page(List.of(),false,offset); // Session is created only on the first message.
+            var proactiveMessages=proactive==null?List.<Message>of():proactive.listByUser(user,50);
+            if(error.status()==404 && proactiveMessages.isEmpty()) return new Page(List.of(),false,offset); // Session is created only on the first message.
+            if(!proactiveMessages.isEmpty()) return new Page(proactiveMessages,false,offset);
             throw error;
         }
         if(!(response.get("data") instanceof List<?> rows))throw new HermesException(502,"O Hermes retornou um histórico inválido.");
@@ -42,6 +45,11 @@ public class ConversationHistory {
             if(text.isBlank() && files.isEmpty())continue;
             String id=Objects.toString(row.get("id"),selected.sessionId()+":"+(offset+i));
             visible.add(new Message(id,role,text,List.copyOf(files)));
+        }
+        if (offset == 0 && proactive != null) {
+            for (Message proactiveMessage : proactive.listByUser(user, 50)) {
+                if (visible.stream().noneMatch(message -> message.id().equals(proactiveMessage.id()))) visible.add(proactiveMessage);
+            }
         }
         return new Page(List.copyOf(visible),rows.size()==limit,offset+rows.size());
     }

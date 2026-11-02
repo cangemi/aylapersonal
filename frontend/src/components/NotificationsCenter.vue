@@ -30,7 +30,7 @@
             type="button"
             @click="read(item)"
           >Ler</button>
-          <RouterLink :to="item.href" class="text-link" @click="open = false">Abrir</RouterLink>
+          <RouterLink :to="item.href" class="text-link" @click="openItem(item)">Abrir</RouterLink>
         </li>
       </ul>
     </div>
@@ -50,6 +50,21 @@ const root = ref(null),
   reminders = ref([]),
   alarms = ref([])
 
+const seen = new Set()
+
+
+function formatNoticeWhen(value) {
+  if (!value) return ''
+  try {
+    return new Intl.DateTimeFormat('pt-BR', {
+      dateStyle: 'short',
+      timeStyle: 'short',
+    }).format(new Date(value))
+  } catch {
+    return value
+  }
+}
+
 const items = computed(() => {
   const result = []
   for (const item of alarms.value) {
@@ -57,7 +72,7 @@ const items = computed(() => {
       id: item.id,
       kind: 'alarm',
       title: item.title,
-      when: item.dueAt,
+      when: formatNoticeWhen(item.dueAt),
       href: '/alarmes',
       readId: item.id,
       readPath: `/alarms/notifications/${item.id}/read`,
@@ -68,7 +83,7 @@ const items = computed(() => {
       id: item.id,
       kind: 'calendar',
       title: item.title,
-      when: item.dueAt || item.startsAt,
+      when: formatNoticeWhen(item.dueAt || item.startsAt),
       href: '/agenda',
       readId: item.id,
       readPath: `/calendar/reminders/${item.id}/read`,
@@ -79,6 +94,16 @@ const items = computed(() => {
 
 const count = computed(() => items.value.length)
 
+function notifyNew() {
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
+  for (const item of items.value) {
+    const key = item.kind + ':' + item.id
+    if (seen.has(key)) continue
+    seen.add(key)
+    new Notification(item.kind === 'alarm' ? '⏰ ' + item.title : item.title, { body: item.when || '' })
+  }
+}
+
 async function load() {
   const user = auth.session?.user?.id
   if (!user) return
@@ -86,10 +111,11 @@ async function load() {
   try {
     const [calendarItems, alarmItems] = await Promise.all([
       api('/calendar/reminders').catch(() => []),
-      api('/alarms/notifications').catch(() => []),
+      api('/alarms/notifications?unread=false').catch(() => []),
     ])
     reminders.value = Array.isArray(calendarItems) ? calendarItems : []
     alarms.value = Array.isArray(alarmItems) ? alarmItems : []
+    notifyNew()
   } catch {
     /* Keep previous counters when offline. */
   } finally {
@@ -110,6 +136,20 @@ async function read(item) {
     /* Ignore read failures; the item remains visible. */
   }
 }
+async function openItem(item) {
+  open.value = false
+  if (item.readPath) {
+    try {
+      await api(item.readPath, { method: 'POST' })
+    } catch {
+      /* Ignore read failures. */
+    }
+  }
+  if (item.id) {
+    alarms.value = alarms.value.filter((alarm) => alarm.id !== item.id)
+    reminders.value = reminders.value.filter((reminder) => reminder.id !== item.id)
+  }
+}
 
 function clickOutside(event) {
   if (open.value && root.value && !root.value.contains(event.target)) open.value = false
@@ -118,11 +158,14 @@ function clickOutside(event) {
 watch(() => auth.session?.user?.id, () => {
   reminders.value = []
   alarms.value = []
+  seen.clear()
   load()
 }, { immediate: true })
 
 let timer
 onMounted(() => {
+  if (typeof Notification !== 'undefined' && Notification.permission === 'default')
+    Notification.requestPermission().catch(() => {})
   load()
   timer = setInterval(() => {
     if (!document.hidden) load()

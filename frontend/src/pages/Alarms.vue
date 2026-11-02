@@ -27,12 +27,27 @@
           <select v-model="form.type">
             <option value="ONCE">Uma vez</option>
             <option value="DAILY">Todos os dias</option>
+            <option value="WEEKLY">Um dia da semana</option>
           </select>
         </label>
         <label>Fuso horário<input v-model="form.timeZone" placeholder="America/Sao_Paulo" /></label>
       </div>
       <label v-if="form.type === 'ONCE'">Quando<input type="datetime-local" v-model="form.alarmAt" required /></label>
-      <label v-if="form.type === 'DAILY'">Horário<input type="time" v-model="form.timeOfDay" required /></label>
+      <label v-if="form.type === 'DAILY' || form.type === 'WEEKLY'">Horário<input type="time" v-model="form.timeOfDay" required /></label>
+      <label v-if="form.type === 'WEEKLY'">Dia da semana
+        <select v-model.number="form.dayOfWeek" required>
+          <option :value="1">Segunda</option>
+          <option :value="2">Terça</option>
+          <option :value="3">Quarta</option>
+          <option :value="4">Quinta</option>
+          <option :value="5">Sexta</option>
+          <option :value="6">Sábado</option>
+          <option :value="7">Domingo</option>
+        </select>
+      </label>
+      <p class="muted footnote">
+        “Todos os dias” repete diariamente; “Um dia da semana” repete apenas no dia escolhido.
+      </p>
       <label class="check-label"><input v-model="form.confirmNeeded" type="checkbox" />Pedir confirmação (repete a cada 5 minutos até confirmar)</label>
       <div class="form-actions">
         <button type="button" class="button secondary" :disabled="saving" @click="closeDialog">Cancelar</button>
@@ -56,15 +71,28 @@
       <li v-for="alarm in alarms" :key="alarm.id" class="alarm-card">
         <div class="alarm-main">
           <div class="item-top">
-            <span class="tag" :class="alarm.type === 'DAILY' ? 'lavender' : 'blue'">
-              {{ alarm.type === 'DAILY' ? 'Diário' : 'Único' }}
+            <span class="tag" :class="alarm.type === 'DAILY' ? 'lavender' : alarm.type === 'WEEKLY' ? 'green' : 'blue'">
+              {{
+                alarm.type === 'DAILY' ? 'Diário' : alarm.type === 'WEEKLY' ? 'Semanal' : 'Único'
+              }}
             </span>
             <span v-if="alarm.confirmNeeded" class="tag amber">Confirmação</span>
             <span v-if="alarm.active === false" class="tag green">Já disparou</span>
           </div>
           <h3>{{ alarm.title }}</h3>
           <p class="muted">
-            {{ alarm.type === 'ONCE' ? formatAlarm(alarm.alarmAt) : 'Todos os dias às ' + alarm.timeOfDay }}
+            {{
+              alarm.type === 'ONCE'
+                ? formatAlarm(alarm.alarmAt)
+                : alarm.type === 'DAILY'
+                  ? 'Todos os dias às ' + alarm.timeOfDay
+                  : 'Toda ' +
+                    ['segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado', 'domingo'][
+                      Number(alarm.dayOfWeek || 1) - 1
+                    ] +
+                    ' às ' +
+                    alarm.timeOfDay
+            }}
             <span v-if="alarm.timeZone"> · {{ alarm.timeZone }}</span>
           </p>
           <p v-if="alarm.description" class="alarm-description">{{ alarm.description }}</p>
@@ -102,7 +130,7 @@
 
   <div class="tip-strip">
     <Icon name="chat" :size="20" />
-    <span>Também vale pedir à Ayla: “me lembre daqui a 30 minutos” ou “alarme todos os dias às 8h”.</span>
+    <span>Também vale pedir à Ayla: “me lembre daqui a 30 minutos”, “alarme todos os dias às 8h” ou “alarme toda terça às 7h”.</span>
     <RouterLink to="/chat" class="text-link">Conversar<Icon name="arrow" :size="16" /></RouterLink>
   </div>
 </template>
@@ -128,6 +156,7 @@ const form = ref({
   type: 'ONCE',
   alarmAt: '',
   timeOfDay: '',
+  dayOfWeek: 2,
   timeZone: 'America/Sao_Paulo',
   confirmNeeded: false,
 })
@@ -157,6 +186,7 @@ function resetForm() {
     type: 'ONCE',
     alarmAt: '',
     timeOfDay: '',
+    dayOfWeek: 2,
     timeZone: 'America/Sao_Paulo',
     confirmNeeded: false,
   }
@@ -200,7 +230,10 @@ async function saveAlarm() {
       confirmNeeded: form.value.confirmNeeded,
     }
     if (form.value.type === 'ONCE') body.alarmAt = toIso(form.value.alarmAt)
-    else body.timeOfDay = form.value.timeOfDay
+    else {
+      body.timeOfDay = form.value.timeOfDay
+      if (form.value.type === 'WEEKLY') body.dayOfWeek = form.value.dayOfWeek
+    }
     if (editing.value)
       await write(`/alarms/${editing.value.id}`, 'PATCH', { ...body, version: editing.value.version })
     else await write('/alarms', 'POST', body)
@@ -222,6 +255,7 @@ function editAlarm(alarm) {
     type: alarm.type,
     alarmAt: alarm.alarmAt ? new Date(alarm.alarmAt).toISOString().slice(0, 16) : '',
     timeOfDay: alarm.timeOfDay || '',
+    dayOfWeek: alarm.dayOfWeek || 2,
     timeZone: alarm.timeZone || 'America/Sao_Paulo',
     confirmNeeded: alarm.confirmNeeded,
   }

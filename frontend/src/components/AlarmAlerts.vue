@@ -20,7 +20,13 @@ async function load() {
         for (const item of items) {
           if (!seen.has(item.id)) {
             seen.add(item.id)
-            new Notification(item.title || 'Alarme', { body: item.dueAt })
+            new Notification(item.title || 'Alarme', {
+              body: item.dueAt
+                ? new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(
+                    new Date(item.dueAt),
+                  )
+                : '',
+            })
           }
         }
       }

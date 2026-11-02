@@ -14,13 +14,14 @@ public final class AlarmData {
             OffsetDateTime alarmAt,
             @Min(1) @Max(40320) Integer delayMinutes,
             @Size(max=8) String timeOfDay,
+            @Min(1) @Max(7) Integer dayOfWeek,
             @Size(max=80) String timeZone,
             Boolean confirmNeeded,
             Boolean active,
             @Min(0) Long version) {}
 
     public record Alarm(UUID id, String title, String description, String type, Instant alarmAt, String timeOfDay,
-                         String timeZone, boolean confirmNeeded, boolean active, long version,
+                         Integer dayOfWeek, String timeZone, boolean confirmNeeded, boolean active, long version,
                          Instant createdAt, Instant updatedAt, Instant lastFiredAt,
                          boolean confirmPending, Instant nextSnoozeAt) {}
 

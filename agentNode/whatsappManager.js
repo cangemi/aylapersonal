@@ -673,9 +673,9 @@ class WhatsappManager {
         const reminder=result.rows[0];
         if(!reminder)return {status:'SKIPPED'};
         if(reminder.whatsapp_status!=='PENDING')return {status:reminder.whatsapp_status};
-        let primary=(await this.repository.list()).find(chat=>chat.enabled && !chat.mentionOnly);
-        if(!primary)primary=(await this.createPersonalChat()).chat;
-        if(!primary?.enabled || primary.mentionOnly)throw Object.assign(new Error('Conversa principal indisponível'),{status:409});
+        let chats=(await this.repository.list()).filter(chat=>chat.enabled && !chat.mentionOnly);
+        if(!chats.length){const created=await this.createPersonalChat(); if(created?.chat)chats=[created.chat];}
+        if(!chats.length)throw Object.assign(new Error('Conversa principal indisponível'),{status:409});
         if(this.client!==client || this.phase!=='ready' || this.stopping)return {status:'FRONT_ONLY'};
         const claimed=await this.repository.pool.query(`update calendar_reminders r set whatsapp_status='SENDING',whatsapp_attempt_at=now()
             from calendar_events e where r.id=$1 and r.event_id=e.id and e.user_id=$2 and e.version=r.event_version
@@ -705,9 +705,9 @@ class WhatsappManager {
         const notification=result.rows[0];
         if(!notification)return {status:'SKIPPED'};
         if(notification.whatsapp_status!=='PENDING' && notification.whatsapp_status!=='SENDING')return {status:notification.whatsapp_status};
-        let primary=(await this.repository.list()).find(chat=>chat.enabled && !chat.mentionOnly);
-        if(!primary)primary=(await this.createPersonalChat()).chat;
-        if(!primary?.enabled || primary.mentionOnly)throw Object.assign(new Error('Conversa principal indisponível'),{status:409});
+        let chats=(await this.repository.list()).filter(chat=>chat.enabled && !chat.mentionOnly);
+        if(!chats.length){const created=await this.createPersonalChat(); if(created?.chat)chats=[created.chat];}
+        if(!chats.length)throw Object.assign(new Error('Conversa principal indisponível'),{status:409});
         if(this.client!==client || this.phase!=='ready' || this.stopping)return {status:'FRONT_ONLY'};
         const claimed=await this.repository.pool.query(`update alarm_notifications n set whatsapp_status='SENDING',whatsapp_attempt_at=now()
             from alarms a where n.id=$1 and n.alarm_id=a.id and a.user_id=$2
@@ -715,9 +715,16 @@ class WhatsappManager {
         if(!claimed.rowCount)return {status:'ALREADY_CLAIMED'};
         try {
             if(this.client!==client || this.phase!=='ready')throw new Error('Connection changed');
-            const route = await this.delivery(primary.chatId);
-            if (!route.active()) throw new Error('Connection changed');
-            await this.sendText(route.client,route.chatId,formatReply(`⏰ Alarme: ${notification.title}`));
+            const confirmationHint=notification.confirm_needed ? '\nResponda "ok" para parar os lembretes a cada 5 minutos.' : '';
+            const message=formatReply(`⏰ Alarme: ${notification.title}${confirmationHint}`);
+            let sent=0;
+            for(const chat of chats){
+                if(this.client!==client || this.phase!=='ready' || this.stopping)throw new Error('Connection changed');
+                const route=await this.delivery(chat.chatId);
+                if(!route.active())throw new Error('Connection changed');
+                await this.sendText(route.client,route.chatId,message);
+                sent++;
+            }
             await this.repository.pool.query("update alarm_notifications set whatsapp_status='SENT' where id=$1",[id]);
             return {status:'SENT'};
         } catch(error) {

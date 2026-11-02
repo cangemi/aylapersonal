@@ -16,7 +16,7 @@ public class AlarmBridge {
     public record Command(UUID id,@Min(0) Long version,
             @Size(max=200) String title,@Size(max=4000) String description,
             String type,java.time.OffsetDateTime alarmAt,@Min(1) @Max(40320) Integer delayMinutes,@Size(max=8) String timeOfDay,
-            @Size(max=80) String timeZone,Boolean confirmNeeded,Boolean active){}
+            @Min(1) @Max(7) Integer dayOfWeek,@Size(max=80) String timeZone,Boolean confirmNeeded,Boolean active){}
     @PostMapping("/{operation}") @Transactional
     public Object execute(@RequestHeader("X-Ayla-Session") String session,@PathVariable String operation,@Valid @RequestBody Command command){
         var owners=jdbc.queryForList("select user_id from chat_conversations where hermes_session_id=?",String.class,session);
@@ -25,7 +25,7 @@ public class AlarmBridge {
             case "list" -> alarms.list(user);
             case "get" -> alarms.get(user,required(command.id()));
             case "save" -> {
-                var input=new Input(command.title(),command.description(),command.type()==null?"ONCE":command.type(),command.alarmAt(),command.delayMinutes(),command.timeOfDay(),command.timeZone(),command.confirmNeeded(),command.active(),command.version());
+                var input=new Input(command.title(),command.description(),command.type()==null?"ONCE":command.type(),command.alarmAt(),command.delayMinutes(),command.timeOfDay(),command.dayOfWeek(),command.timeZone(),command.confirmNeeded(),command.active(),command.version());
                 yield alarms.save(user,command.id(),input,null);
             }
             case "delete" -> {alarms.delete(user,required(command.id()),command.version()==null?-1:command.version());yield Map.of("deleted",true);}

@@ -19,6 +19,7 @@ public class AlarmService {
             r.getString("alarm_type"),
             r.getTimestamp("alarm_at") == null ? null : r.getTimestamp("alarm_at").toInstant(),
             r.getTime("time_of_day")==null?null:r.getTime("time_of_day").toLocalTime().withSecond(0).withNano(0).toString(),
+            r.getObject("day_of_week", Integer.class),
             r.getString("time_zone"),
             r.getBoolean("confirm_needed"),
             r.getBoolean("active"),
@@ -29,6 +30,12 @@ public class AlarmService {
             r.getBoolean("confirm_pending"),
             r.getTimestamp("next_snooze_at") == null ? null : r.getTimestamp("next_snooze_at").toInstant());
     public AlarmService(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setProactive(ayla.chat.session.ProactiveMessageService proactive) { this.proactive = proactive; }
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPush(ayla.push.PushService push) { this.push = push; }
+    ayla.chat.session.ProactiveMessageService proactive;
+    ayla.push.PushService push;
 
     public List<Alarm> list(String user) {
         return jdbc.query("select * from alarms where user_id=? order by active desc, created_at desc", ROW, user);
@@ -49,7 +56,7 @@ public class AlarmService {
         String title = input.title() == null ? (old == null ? "" : old.title()) : input.title().strip();
         if (title.isBlank()) throw error(400, "Qual é o alarme?");
         String type = input.type() == null ? (old == null ? "ONCE" : old.type()) : input.type().trim().toUpperCase(Locale.ROOT);
-        if (!type.equals("ONCE") && !type.equals("DAILY")) throw error(400, "Tipo de alarme inválido.");
+        if (!type.equals("ONCE") && !type.equals("DAILY") && !type.equals("WEEKLY")) throw error(400, "Tipo de alarme inválido.");
         String zone = input.timeZone() == null ? (old == null ? "America/Sao_Paulo" : old.timeZone()) : input.timeZone();
         try { ZoneId.of(zone); } catch (Exception e) { throw error(400, "Fuso horário inválido."); }
         boolean confirm = input.confirmNeeded() == null ? (old != null && old.confirmNeeded()) : input.confirmNeeded();
@@ -57,6 +64,7 @@ public class AlarmService {
 
         Instant alarmAt = null;
         String timeOfDay = null;
+        Integer dayOfWeek = null;
         if (type.equals("ONCE")) {
             if (input.alarmAt() != null) alarmAt = input.alarmAt().toInstant();
             else if (input.delayMinutes() != null) alarmAt = Instant.now().plusSeconds(input.delayMinutes() * 60L);
@@ -68,21 +76,26 @@ public class AlarmService {
             if (input.timeOfDay() != null) timeOfDay = normalizeTime(input.timeOfDay());
             else if (old != null) timeOfDay = old.timeOfDay();
             if (timeOfDay == null || timeOfDay.isBlank()) throw error(400, "Para alarme recorrente, informe o horário (HH:mm).");
+            if (type.equals("WEEKLY")) {
+                if (input.dayOfWeek() != null) dayOfWeek = input.dayOfWeek();
+                else if (old != null) dayOfWeek = old.dayOfWeek();
+                if (dayOfWeek == null || dayOfWeek < 1 || dayOfWeek > 7) throw error(400, "Para alarme semanal, informe o dia da semana (1=segunda ... 7=domingo).");
+            } else dayOfWeek = null;
             alarmAt = null;
         }
 
         if (id != null) {
             if (input.version() == null) throw error(400, "Consulte o alarme atual antes de editar.");
             if (input.version() != old.version()) throw error(409, "O alarme mudou. Consulte novamente.");
-            jdbc.update("update alarms set title=?,description=?,alarm_type=?,alarm_at=?,time_of_day=?,time_zone=?,confirm_needed=?,active=?,version=version+1,updated_at=now() where user_id=? and id=?",
+            jdbc.update("update alarms set title=?,description=?,alarm_type=?,alarm_at=?,time_of_day=?,day_of_week=?,time_zone=?,confirm_needed=?,active=?,version=version+1,updated_at=now() where user_id=? and id=?",
                     title, input.description() == null ? (old == null ? "" : old.description()) : input.description(), type,
                     alarmAt == null ? null : Timestamp.from(alarmAt),
-                    timeOfDay == null ? null : java.sql.Time.valueOf(timeOfDay + ":00"), zone, confirm, active, user, id);
+                    timeOfDay == null ? null : java.sql.Time.valueOf(timeOfDay + ":00"), dayOfWeek, zone, confirm, active, user, id);
         } else {
             UUID eventId = UUID.randomUUID();
-            jdbc.update("insert into alarms(id,user_id,title,description,alarm_type,alarm_at,time_of_day,time_zone,confirm_needed,active) values (?,?,?,?,?,?,?,?,?,?)",
+            jdbc.update("insert into alarms(id,user_id,title,description,alarm_type,alarm_at,time_of_day,day_of_week,time_zone,confirm_needed,active) values (?,?,?,?,?,?,?,?,?,?,?)",
                     eventId, user, title, input.description() == null ? "" : input.description(), type,
-                    alarmAt == null ? null : Timestamp.from(alarmAt), timeOfDay == null ? null : java.sql.Time.valueOf(timeOfDay + ":00"), zone, confirm, active);
+                    alarmAt == null ? null : Timestamp.from(alarmAt), timeOfDay == null ? null : java.sql.Time.valueOf(timeOfDay + ":00"), dayOfWeek, zone, confirm, active);
             id = eventId;
         }
         return get(user, id);
@@ -110,7 +123,7 @@ public class AlarmService {
 
     public List<Notification> notifications(String user, boolean unread) {
         String sql = "select n.id,n.alarm_id,n.due_at,n.notified_at,n.whatsapp_status,n.read_at,n.confirmed_at,n.snooze,a.title from alarm_notifications n join alarms a on a.id=n.alarm_id where n.user_id=? and n.notified_at is not null";
-        if (unread) sql += " and n.read_at is null and n.whatsapp_status<>'SENT'";
+        if (unread) sql += " and n.read_at is null";
         sql += " order by n.due_at desc limit 50";
         return jdbc.query(sql, (r, n) -> new Notification(r.getObject("id", UUID.class), r.getObject("alarm_id", UUID.class),
                 r.getTimestamp("due_at").toInstant(), r.getTimestamp("notified_at") == null ? null : r.getTimestamp("notified_at").toInstant(),
@@ -119,22 +132,29 @@ public class AlarmService {
     }
 
     public void read(String user, UUID id) {
-        jdbc.update("update alarm_notifications n set read_at=coalesce(read_at,now()) from alarms a where n.alarm_id=a.id and a.user_id=? and n.id=?", user, id);
+        jdbc.update("delete from alarm_notifications n using alarms a where n.alarm_id=a.id and a.user_id=? and n.id=?", user, id);
     }
 
     @Transactional
     public void confirm(String user, UUID alarmId) {
         Alarm alarm = get(user, alarmId);
         jdbc.update("update alarm_notifications set confirmed_at=coalesce(confirmed_at,now()), read_at=coalesce(read_at,now()) where alarm_id=? and confirmed_at is null", alarmId);
-        jdbc.update("update alarms set confirm_pending=false, next_snooze_at=null, active = case when alarm_type='DAILY' then true else false end, updated_at=now() where user_id=? and id=?", user, alarmId);
+        jdbc.update("update alarms set confirm_pending=false, next_snooze_at=null, active = case when alarm_type in ('DAILY','WEEKLY') then true else false end, updated_at=now() where user_id=? and id=?", user, alarmId);
     }
 
     // Worker helpers
     @Transactional
     public void fireDue() {
-        fireOnceAlarms();
-        fireDailyAlarms();
-        createSnoozes();
+        runSafely("alarmes únicos", this::fireOnceAlarms);
+        runSafely("alarmes diários", this::fireDailyAlarms);
+        runSafely("alarmes semanais", this::fireWeeklyAlarms);
+        runSafely("alarmes com soneca", this::createSnoozes);
+    }
+    private void runSafely(String label, Runnable action) {
+        try { action.run(); }
+        catch (RuntimeException error) {
+            org.slf4j.LoggerFactory.getLogger(getClass()).error("Falha ao processar " + label + ".", error);
+        }
     }
 
     private void fireOnceAlarms() {
@@ -143,6 +163,7 @@ public class AlarmService {
         for (Alarm a : alarms) {
             UUID notif = UUID.randomUUID();
             jdbc.update("insert into alarm_notifications(id,alarm_id,user_id,due_at,notified_at) values (?,?,?,?,now())", notif, a.id(), findUser(a.id()), Timestamp.from(now));
+            recordProactiveMessage(a.id(), findUser(a.id()));
             updateAlarmFired(a, now, true);
         }
     }
@@ -170,10 +191,43 @@ public class AlarmService {
             int m = Integer.parseInt(parts[1]);
             ZonedDateTime todayAt = nowZ.toLocalDate().atTime(h, m).atZone(zone);
             if (now.isBefore(todayAt.toInstant())) continue;
-            if (a.lastFiredAt() != null && a.lastFiredAt().atZone(zone).toLocalDate().equals(nowZ.toLocalDate())) continue;
+            // Já disparou hoje só se for DEPOIS do horário agendado de hoje.
+            // Uma data igual basta quando o alarme foi criado/ligado no mesmo dia,
+            // senão o disparo real do dia é ignorado.
+            if (a.lastFiredAt() != null && !a.lastFiredAt().isBefore(todayAt.toInstant())) continue;
             UUID notif = UUID.randomUUID();
             String user = findUser(a.id());
             jdbc.update("insert into alarm_notifications(id,alarm_id,user_id,due_at,notified_at) values (?,?,?,?,now())", notif, a.id(), user, Timestamp.from(todayAt.toInstant()));
+             recordProactiveMessage(a.id(), user);
+            if (a.confirmNeeded()) {
+                jdbc.update("update alarms set last_fired_at=?,confirm_pending=true,next_snooze_at=? where id=?", Timestamp.from(now), Timestamp.from(now.plus(Duration.ofMinutes(5))), a.id());
+            } else {
+                jdbc.update("update alarms set last_fired_at=? where id=?", Timestamp.from(now), a.id());
+            }
+        }
+    }
+
+    private void fireWeeklyAlarms() {
+        List<Alarm> alarms = jdbc.query("select * from alarms where active=true and alarm_type='WEEKLY'", ROW);
+        Instant now = Instant.now();
+        for (Alarm a : alarms) {
+            ZoneId zone = ZoneId.of(a.timeZone());
+            ZonedDateTime nowZ = now.atZone(zone);
+            int todayDow = nowZ.getDayOfWeek().getValue(); // ISO Monday=1
+            if (a.dayOfWeek() == null || a.dayOfWeek() != todayDow) continue;
+            String[] parts = a.timeOfDay().split(":");
+            int h = Integer.parseInt(parts[0]);
+            int m = Integer.parseInt(parts[1]);
+            ZonedDateTime todayAt = nowZ.toLocalDate().atTime(h, m).atZone(zone);
+            if (now.isBefore(todayAt.toInstant())) continue;
+            // Já disparou hoje só se for DEPOIS do horário agendado de hoje.
+            // Uma data igual basta quando o alarme foi criado/ligado no mesmo dia,
+            // senão o disparo real do dia é ignorado.
+            if (a.lastFiredAt() != null && !a.lastFiredAt().isBefore(todayAt.toInstant())) continue;
+            UUID notif = UUID.randomUUID();
+            String user = findUser(a.id());
+            jdbc.update("insert into alarm_notifications(id,alarm_id,user_id,due_at,notified_at) values (?,?,?,?,now())", notif, a.id(), user, Timestamp.from(todayAt.toInstant()));
+             recordProactiveMessage(a.id(), user);
             if (a.confirmNeeded()) {
                 jdbc.update("update alarms set last_fired_at=?,confirm_pending=true,next_snooze_at=? where id=?", Timestamp.from(now), Timestamp.from(now.plus(Duration.ofMinutes(5))), a.id());
             } else {
@@ -190,7 +244,21 @@ public class AlarmService {
             String user = (String) row.get("user_id");
             UUID notif = UUID.randomUUID();
             jdbc.update("insert into alarm_notifications(id,alarm_id,user_id,due_at,notified_at,snooze) values (?,?,?,?,now(),true)", notif, alarmId, user, Timestamp.from(now));
+            recordProactiveMessage(alarmId, user);
             jdbc.update("update alarms set next_snooze_at=? where id=?", Timestamp.from(now.plus(Duration.ofMinutes(5))), alarmId);
+        }
+    }
+
+    private void recordProactiveMessage(UUID alarmId, String user) {
+        if (proactive == null || alarmId == null || user == null) return;
+        try {
+            var row = jdbc.queryForMap("select title, confirm_needed from alarms where id=?", alarmId);
+            String title = String.valueOf(row.get("title"));
+            boolean confirm = Boolean.TRUE.equals(row.get("confirm_needed"));
+            String text = "⏰ Alarme: " + title + (confirm ? "\nResponda \"ok\" para parar os lembretes a cada 5 minutos." : "");
+            if (proactive != null) proactive.record(user, proactive.currentConversation(user).orElse(null), text, "alarm", alarmId);
+            if (push != null) push.notifyAsync(user, null, text);
+        } catch (RuntimeException ignored) {
         }
     }
 
