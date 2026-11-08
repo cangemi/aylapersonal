@@ -684,7 +684,7 @@ class WhatsappManager {
         try {
             if(this.client!==client || this.phase!=='ready')throw new Error('Connection changed');
             const date=new Intl.DateTimeFormat('pt-BR',{dateStyle:'short',timeStyle:'short',timeZone:reminder.time_zone}).format(new Date(reminder.starts_at));
-            const route = await this.delivery(primary.chatId);
+            const route = await this.delivery(chats[0].chatId);
             if (!route.active()) throw new Error('Connection changed');
             await this.sendText(route.client,route.chatId,formatReply(`Ei! Passando para lembrar: ${reminder.title}\n${date}${reminder.location?'\nLocal: '+reminder.location:''}`));
             await this.repository.pool.query("update calendar_reminders set whatsapp_status='SENT' where id=$1",[id]);
@@ -699,7 +699,7 @@ class WhatsappManager {
         if(!this.integrationActive())
             return {status:'FRONT_ONLY'};
         if(!await this.repository.accountEnabled())throw Object.assign(new Error('Conta inativa'),{status:403});
-        const result=await this.repository.pool.query(`select n.whatsapp_status,a.title
+        const result=await this.repository.pool.query(`select n.whatsapp_status,a.title,a.confirm_needed
             from alarm_notifications n join alarms a on a.id=n.alarm_id
             where n.id=$1 and a.user_id=$2 and n.notified_at is not null`,[id,this.config.ownerId]);
         const notification=result.rows[0];

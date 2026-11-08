@@ -30,6 +30,8 @@ public class HermesClient {
         if(knownSessions.size()>=1024)knownSessions.entrySet().removeIf(entry->entry.getValue()<=now);
         if(knownSessions.size()<1024)knownSessions.put(session,now+SESSION_TTL);
     }
+    private final RestClient inferenceClient;
+    private final RestClient healthClient;
     private final String key;
     private final org.springframework.core.env.Environment environment;
 
@@ -47,6 +49,13 @@ public class HermesClient {
         this.requestFactory=factory;
         client = RestClient.builder().baseUrl(baseUrl).requestFactory(factory)
                 .defaultHeader("Authorization", "Bearer " + key).build();
+        var inferenceFactory = new SimpleClientHttpRequestFactory();
+        inferenceFactory.setConnectTimeout(Duration.ofSeconds(5));
+        inferenceFactory.setReadTimeout(Duration.ofSeconds(environment.getProperty("ayla.hermes.inference-timeout-seconds",Integer.class,timeoutSeconds)));
+        inferenceClient = RestClient.builder().baseUrl(baseUrl).requestFactory(inferenceFactory).build();
+        var healthFactory = new SimpleClientHttpRequestFactory();
+        healthFactory.setConnectTimeout(Duration.ofSeconds(2));healthFactory.setReadTimeout(Duration.ofSeconds(5));
+        healthClient = RestClient.builder().baseUrl(baseUrl).requestFactory(healthFactory).build();
     }
 
     public HermesClient(String baseUrl, String key, int timeoutSeconds) {
@@ -54,6 +63,13 @@ public class HermesClient {
     }
     private org.springframework.jdbc.core.JdbcTemplate jdbc;
     private ayla.monitoring.AiUsageService usage;
+    private ModelAvailabilityService availability;
+    private HermesDashboardClient dashboard;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setSessionStateReader(HermesDashboardClient dashboard){this.dashboard=dashboard;}
+    public void requireSessionReady(String profile,String session){if(dashboard!=null)dashboard.requireSessionReady(profile,session);}
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setAvailability(ModelAvailabilityService availability){this.availability=availability;}
     @org.springframework.beans.factory.annotation.Autowired
     public void setUsage(ayla.monitoring.AiUsageService usage) { this.usage=usage; }
     @org.springframework.beans.factory.annotation.Autowired(required = false)
@@ -114,33 +130,28 @@ public class HermesClient {
         long started = System.nanoTime();
         Map<String,Object> usageResponse=null;
         int usageStatus=502;
+        boolean inference=body!=null&&path.matches("/api/sessions/[A-Za-z0-9_-]+/chat");
+        if(inference)requireSessionReady(profile,path.substring("/api/sessions/".length(),path.length()-"/chat".length()));
+        if(inference&&availability!=null)availability.check(profile,java.util.Objects.toString(body.get("model"),null));
         try {
-            Map<String,Object> result;
-            while(true){
-                try {
-                    if(body!=null && path.matches("/api/sessions/[A-Za-z0-9_-]+/chat"))
-                        ayla.chat.queue.ChatJobContext.beforeInference();
-                    var request = client.method(method).uri(routedPath);
-                    if(body!=null) request.body(body);
-                    request.headers(headers -> headers.setBearerAuth(profileKey));
-                    result=request.retrieve().body(TYPE);
-                    if(body!=null && path.endsWith("/chat"))ayla.chat.queue.ChatJobContext.inferenceAccepted();
-                    break;
-                }catch(RestClientResponseException rejected){
-                    // This pinned local gateway returns HTTP 429 at admission, BEFORE running the agent.
-                    // Retry only that explicit rejection; never replay a timeout, 5xx or failed turn.
-                    if(rejected.getStatusCode().value()!=429 || body==null || !path.endsWith("/chat")
-                            || !ayla.chat.queue.ChatJobContext.active())throw rejected;
-                    ayla.chat.queue.ChatJobContext.admissionRejected();
-                    if(ayla.chat.queue.ChatJobContext.safeToRequeue()){
-                        usageStatus=429;
-                        throw new ayla.cluster.OperationBusyException(429,"Aguardando disponibilidade da Ayla.");
-                    }
-                    try {Thread.sleep(5000);}catch(InterruptedException interrupted){Thread.currentThread().interrupt();throw new HermesException(503,"Processamento interrompido.");}
-                }
-            }
+            if(inference)ayla.chat.queue.ChatJobContext.beforeInference();
+            var selectedClient=inference?inferenceClient:path.startsWith("/health")?healthClient:client;
+            var request=selectedClient.method(method).uri(routedPath);
+            if(body!=null)request.body(body);
+            request.headers(headers->headers.setBearerAuth(profileKey));
+            Map<String,Object> result=request.retrieve().body(TYPE);
+            if(inference)ayla.chat.queue.ChatJobContext.inferenceAccepted();
+            // A 429 can originate after tools have run. Never infer safe admission or replay it.
             if (result == null && method==org.springframework.http.HttpMethod.DELETE) result=Map.of();
             if (result == null) throw new HermesException(502, "O Hermes retornou uma resposta vazia.");
+            if(inference&&availability!=null&&java.util.Set.of("failed","error").contains(java.util.Objects.toString(result.get("status"),""))){
+                String structured=tools.jackson.databind.json.JsonMapper.builder().build().writeValueAsString(result);
+                var limit=ProviderLimitParser.parse(structured,null,java.time.Instant.now());
+                if(limit.providerConfirmed()||result.get("error") instanceof Map<?,?> error&&java.util.Objects.equals(error.get("status_code"),429)){
+                    usageStatus=429;
+                    throw availability.rejected(profile,java.util.Objects.toString(body.get("model"),null),structured,null,path.substring("/api/sessions/".length(),path.length()-"/chat".length()));
+                }
+            }
             if(body!=null && path.matches("/api/sessions/[A-Za-z0-9_-]+/chat") && "completed".equals(result.get("status")))
                 rememberSession(new SessionKey(profile,path.substring("/api/sessions/".length(),path.length()-"/chat".length())));
             usageResponse=result;
@@ -158,11 +169,18 @@ public class HermesClient {
                 throw new HermesException(404, "Conversa não encontrada no Hermes. Inicie outra sem sessionId.");
             }
             if (status == 401 || status == 403)
-                throw new HermesException(503, "O Hermes recusou a autenticação. Verifique HERMES_API_SERVER_KEY e o login Nous no Hermes.");
+                throw new HermesException(503, "O Hermes recusou a chave da API deste perfil (HTTP "+status+"). Essa chave é independente do login Nous; confira a configuração da integração com o servidor de conversas.");
+            if(status==429&&inference&&availability!=null)throw availability.rejected(profile,
+                java.util.Objects.toString(body.get("model"),null),e.getResponseBodyAsString(),e.getResponseHeaders()==null?null:e.getResponseHeaders().getFirst("Retry-After"),
+                path.substring("/api/sessions/".length(),path.length()-"/chat".length()));
             if (status == 429) throw new HermesException(429, "O Hermes atingiu o limite de uso. Tente novamente mais tarde.");
             if (status == 409) throw new HermesException(409, "Conflito ao atualizar a sessão no Hermes.");
             throw new HermesException(502, "Falha ao executar a operação no Hermes (HTTP " + status + "). Consulte os logs do Hermes.");
         } catch (ResourceAccessException e) {
+            for(Throwable cause=e;cause!=null;cause=cause.getCause())if(cause instanceof java.net.SocketTimeoutException || cause instanceof java.net.http.HttpTimeoutException){
+                usageStatus=504;
+                throw new HermesException(504,inference?"O tempo de espera pela IA terminou. O processamento remoto pode continuar; confira os registros antes de repetir alterações.":"O servidor Hermes não respondeu à consulta dentro do prazo.");
+            }
             usageStatus=503;
             log.warn("Hermes operacao={} resultado=indisponivel", path.split("\\?")[0]);
             throw new HermesException(503, "O Hermes não respondeu. Verifique se o contêiner está ativo e tente novamente.");

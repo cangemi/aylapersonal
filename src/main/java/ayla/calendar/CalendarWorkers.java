@@ -14,6 +14,10 @@ public class CalendarWorkers {
     private final JdbcTemplate jdbc;
     private final ayla.whatsapp.WhatsappGateway whatsapp;
     private final GoogleCalendarSync google;
+    private ayla.chat.session.ProactiveMessageService proactive;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setProactive(ayla.chat.session.ProactiveMessageService proactive) { this.proactive = proactive; }
 
     public CalendarWorkers(
             JdbcTemplate jdbc,
@@ -51,7 +55,7 @@ public class CalendarWorkers {
                 and whatsapp_attempt_at<now()-interval '5 minutes'
                 """);
 
-            jdbc.update("""
+            var alerts = jdbc.queryForList("""
                 update calendar_reminders r
                 set notified_at=now()
                 from calendar_events e,auth_accounts a
@@ -63,7 +67,20 @@ public class CalendarWorkers {
                 and not r.cancelled
                 and r.notified_at is null
                 and r.due_at<=now()
+                returning r.id,e.user_id,e.title,e.location,e.starts_at,e.time_zone
                 """);
+
+            for (var alert : alerts) {
+                String user = (String) alert.get("user_id");
+                var start = ((java.sql.Timestamp) alert.get("starts_at")).toInstant();
+                String date = java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")
+                    .withZone(java.time.ZoneId.of((String) alert.get("time_zone"))).format(start);
+                String location = Objects.toString(alert.get("location"), "");
+                String text = "Ei! Passando para lembrar: " + alert.get("title") + "\n" + date
+                    + (location.isBlank() ? "" : "\nLocal: " + location);
+                if (proactive != null) proactive.record(user, proactive.currentConversation(user).orElse(null),
+                    text, "calendar-reminder", (UUID) alert.get("id"));
+            }
 
             jdbc.update("""
                 update calendar_reminders r

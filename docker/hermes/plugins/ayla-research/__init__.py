@@ -226,11 +226,5 @@ def register(ctx):
         text = plain_text(kwargs.get('user_message', '')).strip()
         if text.startswith(REQUIRED_PREFIX):
             return research(llm=ctx.llm, **kwargs)
-        return guidance('Nenhuma pesquisa foi executada automaticamente neste turno. '
-                        'Responda somente à mensagem atual. Pesquisas e falhas em mensagens anteriores são histórico, não tarefas pendentes. '
-                        'Use web_search se precisar esclarecer um fato público perguntado AGORA que não sabe ou não pode confirmar. '
-                        'Não pesquise nem mencione pesquisas antigas em relatos de gastos, registros, cumprimentos ou conversa informal. '
-                        'Se a mensagem atual tratar de financeiro, use os resultados reais deste turno ou finance_*; erros antigos não comprovam falha atual. '
-                        'Fora desse assunto, não puxe financeiro. Para informações pessoais, use as lembranças recuperadas ou personal_memory_search antes de dizer que não lembra. '
-                        'Novidades pessoais úteis podem ser guardadas silenciosamente com personal_memory_save; não arquive toda conversa.')
+        return None  # Shared stable policy already covers ordinary turns; no repeated per-turn prefill.
     ctx.register_hook('pre_llm_call', before_turn)

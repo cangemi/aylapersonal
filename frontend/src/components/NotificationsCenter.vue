@@ -50,7 +50,6 @@ const root = ref(null),
   reminders = ref([]),
   alarms = ref([])
 
-const seen = new Set()
 
 
 function formatNoticeWhen(value) {
@@ -94,16 +93,6 @@ const items = computed(() => {
 
 const count = computed(() => items.value.length)
 
-function notifyNew() {
-  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
-  for (const item of items.value) {
-    const key = item.kind + ':' + item.id
-    if (seen.has(key)) continue
-    seen.add(key)
-    new Notification(item.kind === 'alarm' ? '⏰ ' + item.title : item.title, { body: item.when || '' })
-  }
-}
-
 async function load() {
   const user = auth.session?.user?.id
   if (!user) return
@@ -115,7 +104,6 @@ async function load() {
     ])
     reminders.value = Array.isArray(calendarItems) ? calendarItems : []
     alarms.value = Array.isArray(alarmItems) ? alarmItems : []
-    notifyNew()
   } catch {
     /* Keep previous counters when offline. */
   } finally {
@@ -158,7 +146,6 @@ function clickOutside(event) {
 watch(() => auth.session?.user?.id, () => {
   reminders.value = []
   alarms.value = []
-  seen.clear()
   load()
 }, { immediate: true })
 

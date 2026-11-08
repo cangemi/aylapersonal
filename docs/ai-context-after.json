@@ -1,0 +1,47 @@
+{
+  "kind": "source_measurement_not_provider_tokens",
+  "soul_utf8_bytes": 2967,
+  "java_instruction_literals_utf8_bytes": 13432,
+  "custom_tools": {
+    "TOOLS": {
+      "count": 7,
+      "json_utf8_bytes": 5898
+    },
+    "INVESTMENT_TOOLS": {
+      "count": 10,
+      "json_utf8_bytes": 6358
+    },
+    "MEMORY_TOOLS": {
+      "count": 3,
+      "json_utf8_bytes": 2251
+    },
+    "HOUSEHOLD_TOOLS": {
+      "count": 9,
+      "json_utf8_bytes": 7264
+    },
+    "CALENDAR_TOOLS": {
+      "count": 14,
+      "json_utf8_bytes": 12652
+    },
+    "ALARM_TOOLS": {
+      "count": 5,
+      "json_utf8_bytes": 2168
+    },
+    "CONTEXT_TOOLS": {
+      "count": 2,
+      "json_utf8_bytes": 1077
+    }
+  },
+  "real_tokens": null,
+  "note": "Static UTF-8 source literals and compact schema JSON. Excludes dynamic data and the Hermes built-in prompt. Not wire tokenization, billing or a quality benchmark.",
+  "comparison": {
+    "static_instruction_bytes_before": 73771,
+    "static_instruction_bytes_after": 16399,
+    "static_instruction_bytes_reduction_percent": 77.77,
+    "custom_schema_bytes_before": 44503,
+    "custom_schema_bytes_after": 37668,
+    "custom_schema_bytes_reduction_percent": 15.36,
+    "real_input_token_reduction_percent": null,
+    "latency_change_ms": null
+  }
+}

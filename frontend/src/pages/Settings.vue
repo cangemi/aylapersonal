@@ -564,7 +564,7 @@ onMounted(() => {
         <div class="panel-heading">
           <div>
             <h2>Notificações push da Ayla</h2>
-            <p>Receba avisos mesmo com o app fechado, quando suportado.</p>
+            <p>Receba alertas de alarmes e da agenda quando usar seu próprio número como Ayla, mesmo com o app fechado, quando suportado.</p>
           </div>
           <Icon name="sparkles" />
         </div>

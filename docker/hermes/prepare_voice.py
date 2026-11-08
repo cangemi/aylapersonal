@@ -4,17 +4,21 @@ Hermes PM owns the runtime environment; the adapter also forwards configured Edg
 from pathlib import Path
 import os
 import subprocess
+import tomllib
 import pm
 
 root = Path('/opt/hermes')
 project = root / 'pyproject.toml'
 original = project.read_text()
-if 'edge-tts==7.2.7' in original:
+locked_packages = tomllib.loads((root / 'uv.lock').read_text()).get('package', [])
+voice_locked = any(package.get('name') == 'edge-tts' and package.get('version') == '7.3.1'
+                   for package in locked_packages)
+if 'edge-tts==7.2.7' in original or ('edge-tts==7.3.1' in original and not voice_locked):
     project.write_text(original.replace('edge-tts==7.2.7', 'edge-tts==7.3.1'))
     try:
         subprocess.run([str(pm.uv_launcher('uv')), 'lock', '--python', '/opt/hermes/.venv/bin/python',
                         '--upgrade-package', 'edge-tts'], cwd=root,
-                       env=dict(os.environ, UV_CACHE_DIR='/tmp/ayla-voice-uv-cache'), check=True, timeout=180)
+                       env=dict(os.environ, UV_CACHE_DIR=str(root / 'uv-cache')), check=True, timeout=90)
     except BaseException:
         project.write_text(original)
         raise

@@ -27,14 +27,14 @@ public class ChatQueueService {
     private final ExecutorService executor=Executors.newVirtualThreadPerTaskExecutor();
     private final ConcurrentMap<UUID,ChatQueueStore.Work> active=new ConcurrentHashMap<>();
     private ayla.hermes.HermesClient hermes;
-    private ayla.push.PushService push;
+    private ayla.hermes.ProviderUsageService providerUsage;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setProviderUsage(ayla.hermes.ProviderUsageService value){providerUsage=value;}
     private ayla.monitoring.MonitoringService monitoring;
     @org.springframework.beans.factory.annotation.Autowired
     public void setMonitoring(ayla.monitoring.MonitoringService monitoring){this.monitoring=monitoring;}
     @org.springframework.beans.factory.annotation.Autowired
     public void setHermes(ayla.hermes.HermesClient hermes){this.hermes=hermes;}
-    @org.springframework.beans.factory.annotation.Autowired
-    public void setPush(ayla.push.PushService push){this.push=push;}
     public ChatQueueService(ChatQueueStore store,ConversationService conversations,ChatService chat,
             @Value("${ayla.cluster.max-concurrent-chats:3}") int limit){
         this.store=store;this.conversations=conversations;this.chat=chat;this.slots=new Semaphore(limit);
@@ -52,6 +52,7 @@ public class ChatQueueService {
         var selection=conversations.resolve(user,request.conversationId(),request.sessionId());
         var bound=new ChatRequest(request.message(),null,selection.conversationId().toString(),request.searchRequired(),request.images(),request.audios(),request.audioReply(),request.documents(),request.whatsappContext());
         UUID id=store.insert(user,selection.conversationId(),requestKey,fingerprint,source,whatsappChat,bound);
+        if(providerUsage!=null)try{providerUsage.check(user);}catch(ayla.hermes.ProviderUsageData.Limited limited){store.limitedBeforeDispatch(user,id,limited);return store.get(user,id,whatsappChat);}
         if(org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()){
             org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(new org.springframework.transaction.support.TransactionSynchronization(){
                 @Override public void afterCommit(){wake();}
@@ -63,6 +64,14 @@ public class ChatQueueService {
         if(!wakeQueued.compareAndSet(false,true))return;
         try{executor.execute(()->{wakeQueued.set(false);dispatch();});}
         catch(RejectedExecutionException stopped){wakeQueued.set(false);}
+    }
+    @Transactional
+    public ChatQueueStore.Job retry(String user,UUID id){
+        var existing=store.get(user,id,null);
+        if(!existing.retryable())throw new HermesException(409,"Este pedido exige conferência antes de uma nova tentativa.");
+        if(providerUsage!=null)providerUsage.check(user);
+        store.retry(user,id);
+        return store.get(user,id,null);
     }
     @Scheduled(fixedDelay=500,initialDelay=1000)
     public void dispatch(){
@@ -88,17 +97,17 @@ public class ChatQueueService {
                 if(!store.allowed(work)){store.finish(work,"CANCELLED",null,"Este pedido foi cancelado porque o acesso à conversa foi desativado.");return;}
                 var chatResponse=chat.chat(store.request(work),work.userId());
                 store.finish(work,"COMPLETED",chatResponse,null);
-                if(push!=null)push.notifyAsync(work.userId(),work.conversationId(),chatResponse.response(),"chat-response:"+work.id());
                 event(work,started,200,null);
             } catch(RuntimeException error){
-                boolean temporary=error instanceof ayla.cluster.OperationBusyException
-                        || error instanceof HermesException h && Set.of(429,503).contains(h.status());
+                if(error instanceof ayla.hermes.ProviderUsageData.Limited limited)store.providerNotice(work,limited.availability());
+                boolean temporary=!(error instanceof ayla.hermes.ProviderUsageData.Limited)&&(error instanceof ayla.cluster.OperationBusyException
+                        || error instanceof HermesException h && Set.of(503).contains(h.status()));
                 if(!context.dispatched()&&temporary){
                     if(error instanceof ayla.cluster.OperationBusyException)store.waitAgain(work,1+Math.floorMod(work.id().hashCode(),3));
                     else store.waitAgain(work);
                 }
                 else {store.finish(work,context.dispatched()?"NEEDS_REVIEW":"FAILED",null,
-                        context.dispatched()?"Não consegui confirmar a conclusão. Não repeti sua solicitação; confira se a alteração já ocorreu antes de reenviar."
+                        error instanceof ayla.hermes.ProviderUsageData.Limited||error instanceof ayla.hermes.HermesSessionPausedException?error.getMessage():context.dispatched()?"Não consegui confirmar a conclusão. Não repeti sua solicitação; confira se a alteração já ocorreu antes de reenviar."
                         :"Não consegui processar esse pedido. Confira os dados enviados e a configuração da Ayla.");
                     event(work,started,error instanceof HermesException h?h.status():502,error);
                 }
@@ -112,7 +121,7 @@ public class ChatQueueService {
         if(monitoring==null)return;
         try {monitoring.record(new ayla.monitoring.MonitoringService.Event(work.id(),java.time.Instant.now(),work.userId(),work.source(),"JOB",
                 "/api/v1/chat/jobs/{id}","Processar pedido na fila da Ayla",status,(System.nanoTime()-started)/1_000_000,
-                error==null?null:error.getClass().getSimpleName(),error==null?null:"Não foi possível confirmar a conclusão do pedido na fila.",null));}
+                error==null?null:error.getClass().getSimpleName(),error==null?null:error instanceof ayla.hermes.HermesSessionPausedException?error.getMessage():status==504?"Tempo de espera pela IA esgotado; a operação remota pode continuar. O pedido não foi repetido.":"Não foi possível confirmar a conclusão do pedido na fila.",null));}
         catch(RuntimeException unavailable){org.slf4j.LoggerFactory.getLogger(getClass()).warn("Monitoramento da fila indisponível. tipo={}",unavailable.getClass().getSimpleName());}
     }
     @Scheduled(fixedDelay=15000,initialDelay=15000)
@@ -124,8 +133,10 @@ public class ChatQueueService {
             for(var profile:store.blockedProfiles()){
                 try {
                     var health=hermes.get((String)profile.get("hermes_profile"),"/health/detailed");
-                    if(health.get("api_server") instanceof Map<?,?> api && api.get("active_runs") instanceof Number runs && runs.longValue()==0)
-                        store.releaseReviewed((String)profile.get("user_id"));
+                    if(health.get("api_server") instanceof Map<?,?> api && api.get("active_runs") instanceof Number runs && runs.longValue()==0){
+                        hermes.requireSessionReady((String)profile.get("hermes_profile"),(String)profile.get("hermes_session_id"));
+                        store.releaseReviewed((String)profile.get("user_id"),(UUID)profile.get("conversation_id"));
+                    }
                 } catch(RuntimeException unavailable){ /* Keep the ordering barrier while the gateway is unavailable. */ }
             }
         }

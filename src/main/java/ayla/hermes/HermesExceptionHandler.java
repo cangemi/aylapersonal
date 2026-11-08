@@ -6,8 +6,12 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.*;
 
-@RestControllerAdvice(assignableTypes = {ChatController.class, ayla.chat.controller.ConversationController.class, HermesController.class, VoiceController.class, ayla.memory.PersonalMemoryController.class, ayla.memory.PersonalMemoryBridge.class})
+@RestControllerAdvice(assignableTypes = {ChatController.class, ayla.chat.controller.ConversationController.class, HermesController.class, HermesAccountService.Controller.class, ProviderUsageController.class, VoiceController.class, ayla.memory.PersonalMemoryController.class, ayla.memory.PersonalMemoryBridge.class})
 public class HermesExceptionHandler {
+    @ExceptionHandler(ProviderUsageData.Limited.class)
+    public ResponseEntity<java.util.Map<String,Object>> limited(ProviderUsageData.Limited error){
+        return ResponseEntity.status(429).body(java.util.Map.of("error",error.getMessage(),"availability",error.availability()));
+    }
     @ExceptionHandler(ayla.finance.FinanceException.class)
     public ResponseEntity<ChatErrorResponse> finance(ayla.finance.FinanceException error) {
         return ResponseEntity.status(error.status()).body(new ChatErrorResponse(error.getMessage(), "finance"));

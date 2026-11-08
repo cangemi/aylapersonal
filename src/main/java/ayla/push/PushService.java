@@ -91,6 +91,13 @@ public class PushService {
     }
 
     private void notify(String user, UUID conversationId, String response, String eventId) {
+        if (eventId == null || !(eventId.startsWith("alarm:") || eventId.startsWith("calendar:") || eventId.startsWith("test:"))) return;
+        Boolean ownNumber = jdbc.queryForObject("""
+            select exists(select 1 from whatsapp_instances i join auth_accounts a on a.user_id=i.owner_user_id
+            where i.owner_user_id=? and i.connection_role='user' and i.connection_mode='own'
+            and i.connected_number is not null and a.enabled)
+            """, Boolean.class, user);
+        if (!Boolean.TRUE.equals(ownNumber)) return;
         if (!preferenceEnabled(user)) return;
         String preview = response == null ? "" : response.replace("\n", " ").trim();
         if (preview.length() > 150) preview = preview.substring(0, 147) + "...";
@@ -166,7 +173,7 @@ public class PushService {
         byte[] cek = hkdfExpand(prk, "Content-Encoding: aes128gcm\0".getBytes(StandardCharsets.UTF_8), 16);
         byte[] nonce = hkdfExpand(prk, "Content-Encoding: nonce\0".getBytes(StandardCharsets.UTF_8), 12);
 
-        String eventType = (eventId != null && eventId.startsWith("alarm:")) ? "ALARM" : "CHAT_RESPONSE";
+        String eventType = eventId != null && eventId.startsWith("calendar:") ? "CALENDAR_REMINDER" : "ALARM";
         String json = "{\"eventId\":\"" + escape(eventId) + "\",\"type\":\"" + eventType + "\",\"title\":\"" + escape(title) + "\",\"body\":\"" + escape(body) + "\",\"tag\":\"" + escape(eventId == null ? "ayla-response" : eventId) + "\",\"conversationId\":null,\"url\":\"" + escape(url) + "\"}";
         byte[] plaintext = json.getBytes(StandardCharsets.UTF_8);
         byte[] padded = new byte[plaintext.length + 1];

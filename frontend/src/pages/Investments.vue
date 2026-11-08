@@ -1,674 +1,272 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { api, write } from '../lib/api'
-import { money, cents, moneyInput, today, date as fmtDate, localDateTime } from '../lib/format'
+import { money, cents, moneyInput, today, date } from '../lib/format'
 import { toast } from '../lib/ui'
 import Icon from '../components/Icon.vue'
+import Modal from '../components/Modal.vue'
 import MaskedInput from '../components/MaskedInput.vue'
 import BaseChart from '../components/BaseChart.vue'
-import Modal from '../components/Modal.vue'
 import EmptyState from '../components/EmptyState.vue'
-const data = ref(null),
-  loading = ref(true),
-  error = ref(''),
-  range = ref(90),
-  sim = ref({ initial: '', monthly: '100,00', months: 12, cdi: '', percent: '' }),
-  simResult = ref(null),
-  simError = ref(''),
-  simLoading = ref(false),
-  move = ref(null),
-  base = ref(null),
-  moveError = ref(''),
-  saving = ref(false),
-  percentEdit = ref('')
-const pct = (v, d = 2) =>
-  v == null
-    ? '—'
-    : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d }) +
-      '%'
-const short = (iso) => iso.slice(8) + '/' + iso.slice(5, 7)
-const monthLabel = (m) => {
-  const [y, mo] = m.split('-')
-  return (
-    ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'][mo - 1] +
-    '/' +
-    y.slice(2)
-  )
-}
+import LegacyInvestment from '../components/LegacyInvestment.vue'
+import InvestmentAnalytics from '../components/InvestmentAnalytics.vue'
+import { assetLabels } from '../lib/investmentAnalytics'
+
+const portfolio = ref(null), loading = ref(false), error = ref(''), selectedId = ref('')
+const form = ref(null), movement = ref(null), removal = ref(null), saving = ref(false), formError = ref('')
+const types = assetLabels
+const analysisPanel = ref(null)
+const rates = { CDI: '% do CDI', ANNUAL: 'Taxa anual informada', MONTHLY: 'Taxa mensal informada', MANUAL: 'Valor atualizado manualmente' }
+const eventTypes = { DEPOSIT: 'Aporte', WITHDRAWAL: 'Resgate', INCOME: 'Provento recebido', VALUATION: 'Atualização de saldo', RATE_CHANGE: 'Alteração de taxa' }
+const selected = computed(() => portfolio.value?.positions.find((item) => item.position.id === selectedId.value))
+const eventHistory = computed(() => [...(selected.value?.events || [])].reverse())
+const allocation = computed(() => {
+  const banks = new Map()
+  for (const item of portfolio.value?.positions || [])
+    banks.set(item.position.institution, (banks.get(item.position.institution) || 0) + item.balanceCents)
+  if (portfolio.value?.legacy) banks.set('Nubank · caixinha existente', portfolio.value.legacy.balanceCents)
+  return [...banks].sort((a, b) => b[1] - a[1])
+})
+const percent = (value) => Number(value || 0).toLocaleString('pt-BR', { maximumFractionDigits: 4 }) + '%'
+const rateLabel = (rate) => rate.type === 'MANUAL' ? 'Saldo informado' : rate.type === 'CDI'
+  ? `${percent(rate.percent)} do CDI` : `${percent(rate.percent)} ${rate.type === 'ANNUAL' ? 'a.a.' : 'a.m.'}`
+
 async function load() {
   loading.value = true
   error.value = ''
   try {
-    data.value = await api('/investments/overview')
-    percentEdit.value = String(data.value.cdiPercent).replace('.', ',')
-  } catch (e) {
-    error.value = e.message
-  } finally {
-    loading.value = false
-  }
+    portfolio.value = await api('/investments/portfolio')
+    if (!portfolio.value.positions.some((item) => item.position.id === selectedId.value) && selectedId.value !== 'legacy')
+      selectedId.value = portfolio.value.positions[0]?.position.id || ''
+  } catch (e) { error.value = e.message }
+  finally { loading.value = false }
 }
-const history = computed(() => (data.value?.history || []).slice(-range.value))
-const hasMoves = computed(() => data.value?.hasData)
-function lineConfig(theme, labels, sets, money_ = true) {
-  return {
-    type: 'line',
-    data: { labels, datasets: sets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: {
-            label: (i) => `${i.dataset.label}: ${money_ ? money(i.raw) : pct(i.raw, 4)}`,
-          },
-        },
-      },
-      scales: {
-        x: {
-          grid: { display: false },
-          border: { display: false },
-          ticks: { color: theme.text, maxTicksLimit: 7 },
-        },
-        y: {
-          grid: { color: theme.grid },
-          border: { display: false },
-          ticks: {
-            color: theme.text,
-            maxTicksLimit: 5,
-            callback: (v) => (money_ ? money(Math.round(v)) : pct(v, 2)),
-          },
-        },
-      },
-    },
-  }
+
+function edit(item = null) {
+  formError.value = ''
+  const p = item?.position, rate = item?.currentRate
+  form.value = { id: p?.id, version: p?.version, requestKey: crypto.randomUUID(), name: p?.name || '', institution: p?.institution || '',
+    assetType: p?.assetType || 'CAIXINHA', ticker: p?.ticker || '', openedOn: p?.openedOn || today(),
+    balance: p ? moneyInput(p.openingBalanceCents) : '', invested: p ? moneyInput(p.openingInvestedCents) : '',
+    rateType: rate?.type || 'CDI', ratePercent: String(rate?.percent ?? 100).replace('.', ','),
+    dayBasis: rate?.dayBasis || 'BUSINESS', maturityDate: p?.maturityDate || '', notes: p?.notes || '' }
 }
-const balanceChart = (theme) =>
-  lineConfig(
-    theme,
-    history.value.map((p) => short(p.date)),
-    [
-      {
-        label: 'Saldo',
-        data: history.value.map((p) => p.balanceCents),
-        borderColor: '#8a6fe0',
-        backgroundColor: 'rgba(138,111,224,.15)',
-        fill: true,
-        pointRadius: 0,
-        tension: 0.25,
-        borderWidth: 2,
-      },
-      {
-        label: 'Aportado',
-        data: history.value.map((p) => p.investedCents),
-        borderColor: '#81c6ac',
-        borderDash: [5, 4],
-        pointRadius: 0,
-        borderWidth: 2,
-        stepped: true,
-      },
-    ],
-  )
-const cdiChart = (theme) =>
-  lineConfig(
-    theme,
-    (data.value?.cdi?.history || []).map((p) => short(p.date)),
-    [
-      {
-        label: 'CDI a.a.',
-        data: (data.value?.cdi?.history || []).map((p) => p.annualPercent),
-        borderColor: '#e0a46f',
-        pointRadius: 0,
-        borderWidth: 2,
-        stepped: true,
-      },
-    ],
-    false,
-  )
-const monthsChart = (theme) => ({
-  type: 'bar',
-  data: {
-    labels: (data.value?.months || []).map((m) => monthLabel(m.month)),
-    datasets: [
-      {
-        label: 'Rendimento',
-        data: (data.value?.months || []).map((m) => m.yieldCents),
-        backgroundColor: '#81c6ac',
-        borderRadius: 4,
-        maxBarThickness: 28,
-      },
-    ],
-  },
-  options: {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: { display: false },
-      tooltip: { callbacks: { label: (i) => `Rendimento: ${money(i.raw)}` } },
-    },
-    scales: {
-      x: { grid: { display: false }, border: { display: false }, ticks: { color: theme.text } },
-      y: {
-        grid: { color: theme.grid },
-        border: { display: false },
-        ticks: { color: theme.text, maxTicksLimit: 5, callback: (v) => money(Math.round(v)) },
-      },
-    },
-  },
-})
-const simChart = (theme) =>
-  lineConfig(
-    theme,
-    (simResult.value?.points || []).map((p) => p.month + 'm'),
-    [
-      {
-        label: 'Saldo',
-        data: (simResult.value?.points || []).map((p) => p.balanceCents),
-        borderColor: '#8a6fe0',
-        backgroundColor: 'rgba(138,111,224,.15)',
-        fill: true,
-        pointRadius: 0,
-        tension: 0.2,
-        borderWidth: 2,
-      },
-      {
-        label: 'Aportado',
-        data: (simResult.value?.points || []).map((p) => p.investedCents),
-        borderColor: '#81c6ac',
-        borderDash: [5, 4],
-        pointRadius: 0,
-        borderWidth: 2,
-      },
-    ],
-  )
-const optionalNumber = (v) => {
-  const t = String(v ?? '')
-    .trim()
-    .replace(',', '.')
-  if (!t) return null
-  const n = Number(t)
-  if (!Number.isFinite(n) || n <= 0) throw new Error('Use números positivos nos percentuais.')
-  return n
+function selectType() {
+  if (['ACAO', 'FII', 'ETF', 'FUNDO', 'PREVIDENCIA', 'CRIPTO', 'POUPANCA', 'TESOURO', 'OUTRO'].includes(form.value.assetType))
+    form.value.rateType = 'MANUAL'
 }
-const optionalCents = (v) => (String(v ?? '').trim() ? cents(v, { allowZero: true }) : null)
-async function simulate() {
-  simLoading.value = true
-  simError.value = ''
-  try {
-    const months = Number(sim.value.months)
-    if (!Number.isInteger(months) || months < 1 || months > 600)
-      throw new Error('Informe de 1 a 600 meses.')
-    simResult.value = await write('/investments/simulate', 'POST', {
-      initialCents: optionalCents(sim.value.initial),
-      monthlyCents: optionalCents(sim.value.monthly),
-      months,
-      cdiAnnualPercent: optionalNumber(sim.value.cdi),
-      percentCdi: optionalNumber(sim.value.percent),
-    })
-  } catch (e) {
-    simError.value = e.message
-  } finally {
-    simLoading.value = false
-  }
-}
-function openMove(type) {
-  moveError.value = ''
-  move.value = { type, amount: '', occurredAt: localDateTime(new Date()) }
-}
-async function saveMove() {
+async function savePosition() {
   saving.value = true
-  moveError.value = ''
+  formError.value = ''
   try {
-    const m = move.value,
-      deposit = m.type === 'EXPENSE'
-    await write('/finance/entries', 'POST', {
-      type: m.type,
-      amountCents: cents(m.amount),
-      description: deposit ? 'Aporte na caixinha' : 'Resgate da caixinha',
-      category: 'Investimento',
-      occurredAt: new Date(m.occurredAt).toISOString(),
-    })
-    move.value = null
-    toast(deposit ? 'Aporte registrado.' : 'Resgate registrado.')
-    await load()
-  } catch (e) {
-    moveError.value = e.message
-  } finally {
-    saving.value = false
-  }
-}
-function openBaseline() {
-  moveError.value = ''
-  const b = data.value?.baseline
-  base.value = {
-    from: b?.date || '',
-    to: b?.date || today(),
-    initial: '',
-    inflow: '',
-    outflow: '',
-    yield: '',
-    monthYield: b?.monthYieldCents ? moneyInput(b.monthYieldCents) : '',
-    final: b ? moneyInput(b.balanceCents) : '',
-  }
-}
-const centsOrZero = (v) => (String(v ?? '').trim() ? cents(v, { allowZero: true }) : 0)
-async function saveBaseline() {
-  saving.value = true
-  moveError.value = ''
-  try {
-    const f = base.value
-    if (f.from && f.from > f.to) throw new Error('O início do período deve ser antes do fim.')
-    const initial = centsOrZero(f.initial)
-    const inflow = centsOrZero(f.inflow)
-    const outflow = centsOrZero(f.outflow)
-    const gain = centsOrZero(f.yield)
-    const expected = initial + inflow - outflow + gain
-    const finalCents = String(f.final).trim() ? cents(f.final, { allowZero: true }) : expected
-    if (Math.abs(finalCents - expected) > 5) {
-      throw new Error(
-        'O saldo final não bate: saldo inicial + entradas − saídas + rendimento deve ser igual ao saldo final.',
-      )
+    const f = form.value
+    const balance = cents(f.balance, { allowZero: true })
+    const rate = f.rateType === 'MANUAL' ? 0 : Number(String(f.ratePercent).replace(',', '.'))
+    if (!Number.isFinite(rate) || rate < 0 || rate > 1000) throw new Error('Informe uma taxa entre 0 e 1000%.')
+    const body = {
+      name: f.name, institution: f.institution, assetType: f.assetType, ticker: f.ticker,
+      openedOn: f.openedOn, openingBalanceCents: balance,
+      openingInvestedCents: f.invested.trim() ? cents(f.invested, { allowZero: true }) : balance,
+      rateType: f.rateType, ratePercent: rate, dayBasis: f.rateType === 'CDI' ? 'BUSINESS' : f.dayBasis,
+      maturityDate: f.maturityDate || null, notes: f.notes, version: f.version ?? null,
     }
-    await write('/investments/baseline', 'PUT', {
-      date: f.to,
-      balanceCents: finalCents,
-      investedCents: Math.max(0, finalCents - gain),
-      monthYieldCents: String(f.monthYield).trim()
-        ? cents(f.monthYield, { allowZero: true })
-        : f.from && f.from.slice(0, 7) === f.to.slice(0, 7)
-          ? gain
-          : null,
+    const result = f.id ? await write('/investments/positions/' + f.id, 'PUT', body)
+      : await api('/investments/positions', { method: 'POST', body, headers: { 'Idempotency-Key': f.requestKey } })
+    selectedId.value = result.position.id
+    form.value = null
+    toast('Aplicação salva.')
+    await load()
+  } catch (e) { formError.value = e.message }
+  finally { saving.value = false }
+}
+function openMovement(type) {
+  formError.value = ''
+  movement.value = { id: selected.value.position.id, version: selected.value.position.version,
+    type, date: today(), amount: '', notes: '' }
+}
+async function saveMovement() {
+  saving.value = true
+  formError.value = ''
+  try {
+    const m = movement.value
+    await write(`/investments/positions/${m.id}/events`, 'POST', {
+      type: m.type, date: m.date, amountCents: cents(m.amount, { allowZero: m.type === 'VALUATION' }),
+      notes: m.notes, version: m.version,
     })
-    base.value = null
-    toast('Saldo de partida salvo.')
+    movement.value = null
+    toast('Movimentação registrada.')
     await load()
-  } catch (e) {
-    moveError.value = e.message
-  } finally {
-    saving.value = false
-  }
+  } catch (e) { formError.value = e.message }
+  finally { saving.value = false }
 }
-async function clearBaseline() {
+async function remove() {
+  saving.value = true
+  formError.value = ''
   try {
-    await write('/investments/baseline', 'DELETE')
-    base.value = null
-    toast('Voltou a calcular só pelos lançamentos.')
+    const r = removal.value
+    await write(`/investments/positions/${r.id}${r.eventId ? '/events/' + r.eventId : ''}?version=${r.version}`, 'DELETE')
+    removal.value = null
+    toast('Registro excluído.')
     await load()
-  } catch (e) {
-    toast(e.message, 'error')
-  }
+  } catch (e) { formError.value = e.message }
+  finally { saving.value = false }
 }
-async function savePercent() {
-  try {
-    const n = optionalNumber(percentEdit.value)
-    if (n == null) throw new Error('Informe o percentual do CDI.')
-    await write('/investments/settings', 'PUT', { cdiPercent: n })
-    toast('Percentual do CDI atualizado.')
-    await load()
-  } catch (e) {
-    toast(e.message, 'error')
-  }
+function confirmRemoval(event = null) {
+  formError.value = ''
+  removal.value = { id: selected.value.position.id, version: selected.value.position.version,
+    eventId: event?.id, title: event ? eventTypes[event.type] : selected.value.position.name }
 }
+const chart = (theme) => ({ type: 'line', data: {
+  labels: (selected.value?.history || []).map((p) => date(p.date)),
+  datasets: [
+    { label: 'Saldo', data: (selected.value?.history || []).map((p) => p.balanceCents), borderColor: '#8a6fe0',
+      backgroundColor: 'rgba(138,111,224,.12)', fill: true, pointRadius: 0, tension: .15 },
+    { label: 'Capital líquido', data: (selected.value?.history || []).map((p) => p.netInvestedCents),
+      borderColor: '#81c6ac', borderDash: [5, 4], pointRadius: 0 },
+  ] }, options: { responsive: true, maintainAspectRatio: false, plugins: {
+    legend: { labels: { color: theme.text } }, tooltip: { callbacks: { label: (i) => `${i.dataset.label}: ${money(i.raw)}` } },
+  }, scales: { x: { ticks: { color: theme.text, maxTicksLimit: 6 }, grid: { display: false } },
+    y: { ticks: { color: theme.text, callback: (v) => money(Math.round(v)) }, grid: { color: theme.grid } } } } })
 onMounted(load)
 </script>
+
 <template>
   <div class="page-heading">
-    <div>
-      <span class="eyebrow">DINHEIRO TRABALHANDO</span>
-      <h1>Caixinha Nubank</h1>
-      <p>
-        Rende {{ pct(data?.cdiPercent, 0) }} do CDI. Aportes vêm dos lançamentos da categoria
-        Investimento.
-      </p>
-    </div>
+    <div><span class="eyebrow">SEU PATRIMÔNIO</span><h1>Investimentos</h1>
+      <p>Suas aplicações, em qualquer banco ou corretora. Comece pelo saldo que você já tem.</p></div>
     <div class="invest-actions">
-      <button class="button secondary" @click="openBaseline">Acertar com o Nubank</button>
-      <button class="button primary" @click="openMove('EXPENSE')">
-        <Icon name="plus" :size="18" />Aportar
-      </button>
-      <button class="button secondary" :disabled="!hasMoves" @click="openMove('INCOME')">
-        Resgatar
-      </button>
+      <button class="button secondary" :disabled="loading" @click="load"><Icon name="refresh" :size="16" />Atualizar</button>
+      <button class="button primary" @click="edit()"><Icon name="plus" :size="18" />Adicionar investimento</button>
     </div>
   </div>
-  <div v-if="error" class="banner error" role="alert">
-    {{ error }}<button class="text-link" @click="load">Tentar novamente</button>
-  </div>
-  <div v-else-if="data?.cdi?.stale" class="banner">
-    O CDI do Banco Central não está atualizado ({{ fmtDate(data.cdi.date) }}); usando o último valor
-    conhecido.
-  </div>
-  <div v-if="loading && !data" class="loading-line"><Icon name="loading" />Carregando…</div>
-  <template v-else-if="data">
-    <div class="stats-grid invest-stats">
-      <article
-        v-for="s in [
-          {
-            t: 'Saldo atual',
-            v: money(data.balanceCents),
-            s: 'Aportado ' + money(data.netInvestedCents),
-            i: 'wallet',
-            c: 'lavender',
-          },
-          {
-            t: 'Ganho total',
-            v: money(data.gainCents),
-            s: pct(data.gainPercent) + ' sobre o aportado',
-            i: 'trend',
-            c: 'mint',
-          },
-          {
-            t: 'Rendeu no último dia',
-            v: money(data.lastDayYieldCents),
-            s: data.lastYieldDate ? fmtDate(data.lastYieldDate) : 'Sem dados',
-            i: 'income',
-            c: 'mint',
-          },
-          {
-            t: 'Rendeu no mês',
-            v: money(data.monthYieldCents),
-            s: 'Últimos 30 dias: ' + money(data.last30DaysYieldCents),
-            i: 'calendar',
-            c: 'peach',
-          },
-          {
-            t: 'Próximo dia útil',
-            v: money(data.nextDayYieldCents),
-            s: data.nextYieldDate ? fmtDate(data.nextYieldDate) : '',
-            i: 'sparkles',
-            c: 'lavender',
-          },
-          {
-            t: 'Próximo mês',
-            v: money(data.nextMonthYieldCents),
-            s: 'Estimativa em ' + (data.nextMonth ? monthLabel(data.nextMonth) : '—'),
-            i: 'trend',
-            c: 'peach',
-          },
-        ]"
-        :key="s.t"
-        class="stat-card"
-      >
-        <div class="stat-top">
-          <span>{{ s.t }}</span
-          ><span :class="['stat-icon', s.c]"><Icon :name="s.i" :size="18" /></span>
-        </div>
-        <strong>{{ s.v }}</strong
-        ><small>{{ s.s }}</small>
-      </article>
+  <div v-if="error" class="banner error" role="alert">{{ error }} <button class="text-link" @click="load">Tentar novamente</button></div>
+  <div v-if="loading && !portfolio" class="loading-line"><Icon name="loading" />Carregando carteira…</div>
+  <template v-if="portfolio">
+    <div v-for="warning in portfolio.warnings" :key="warning" class="banner">{{ warning }}</div>
+    <div class="stats-grid">
+      <article class="stat-card"><span>Saldo acompanhado</span><strong>{{ money(portfolio.balanceCents) }}</strong><small>Posição em {{ date(portfolio.asOf) }} · valores em reais</small></article>
+      <article class="stat-card"><span>Capital líquido aplicado</span><strong>{{ money(portfolio.netInvestedCents) }}</strong><small>Capital inicial + aportes − resgates</small></article>
+      <article class="stat-card"><span>Ganho ou perda total</span><strong>{{ money(portfolio.gainCents) }}</strong><small>Inclui {{ money(portfolio.incomeCents) }} em proventos recebidos</small></article>
     </div>
-    <div v-if="data.baseline" class="banner">
-      Saldo de partida: {{ money(data.baseline.balanceCents) }} em
-      {{ fmtDate(data.baseline.date) }}, com {{ money(data.baseline.investedCents) }} aportados até
-      lá. Lançamentos até essa data não contam.
-      <button class="text-link" @click="openBaseline">Alterar</button>
-    </div>
-    <EmptyState
-      v-if="!hasMoves"
-      icon="trend"
-      title="Nenhum aporte ainda"
-      description="Informe o saldo atual da sua caixinha, aporte ou peça à Ayla para registrar um gasto na categoria Investimento."
-    >
-      <button class="button secondary" @click="openBaseline">Acertar com o Nubank</button>
+    <InvestmentAnalytics ref="analysisPanel" :snapshot="portfolio" />
+    <EmptyState v-if="!portfolio.positions.length && !portfolio.legacy" icon="trend" title="Sua carteira começa aqui"
+      description="Cadastre uma caixinha do Nubank, um CDB de outro banco, ações, fundos, cripto ou qualquer outra aplicação.">
+      <button class="button primary" @click="edit()">Informar meu saldo atual</button>
     </EmptyState>
-    <section v-if="history.length" class="panel finance-chart">
-      <div class="panel-heading">
-        <div>
-          <h2>Evolução do saldo</h2>
-          <p>Saldo com rendimento vs. total aportado</p>
-        </div>
-        <div class="segmented range-toggle">
-          <button
-            v-for="r in [30, 90, 365]"
-            :key="r"
-            :class="{ selected: range === r }"
-            @click="range = r"
-          >
-            {{ r === 365 ? '1 ano' : r + ' dias' }}
-          </button>
-        </div>
-      </div>
-      <BaseChart
-        :build="balanceChart"
-        :watch-source="[history, range]"
-        label="Evolução do saldo da caixinha"
-      />
-    </section>
-    <div class="invest-grid">
-      <section class="panel">
-        <div class="panel-heading">
-          <div>
-            <h2>Rendimento por mês</h2>
-            <p>Quanto a caixinha rendeu em cada mês</p>
-          </div>
-        </div>
-        <BaseChart :build="monthsChart" :watch-source="data.months" label="Rendimento mensal" />
-      </section>
-      <section class="panel">
-        <div class="panel-heading">
-          <div>
-            <h2>CDI</h2>
-            <p>Taxa anual equivalente · fonte Banco Central</p>
-          </div>
-        </div>
-        <div class="invest-cdi">
-          <strong>{{ pct(data.cdi.annualPercent) }}</strong
-          ><span>a.a. · {{ pct(data.cdi.dailyPercent, 4) }} ao dia útil</span>
-          <small
-            >Sua caixinha: {{ pct(data.productAnnualPercent) }} a.a. ({{
-              pct(data.cdiPercent, 0)
-            }}
-            do CDI)</small
-          >
-        </div>
-        <BaseChart
-          :build="cdiChart"
-          :watch-source="data.cdi.history"
-          label="CDI anualizado nos últimos dias"
-        />
-        <form class="inline-form" @submit.prevent="savePercent">
-          <label
-            >% do CDI<MaskedInput
-              kind="decimal"
-              :scale="4"
-              v-model="percentEdit"
-              inputmode="decimal"
-          /></label>
-          <button class="button subtle">Salvar</button>
-        </form>
-      </section>
-    </div>
-    <section class="panel">
-      <div class="panel-heading">
-        <div>
-          <h2>Projeção</h2>
-          <p>Se o CDI atual se mantiver e sem novos aportes</p>
-        </div>
-      </div>
-      <div class="projection-grid">
-        <article v-for="p in data.projections" :key="p.label" class="projection">
-          <span>{{ p.label }}</span
-          ><strong>{{ money(p.balanceCents) }}</strong
-          ><small>+ {{ money(p.yieldCents) }} · {{ fmtDate(p.until) }}</small>
-        </article>
-      </div>
-    </section>
-    <section class="panel">
-      <div class="panel-heading">
-        <div>
-          <h2>Simulador</h2>
-          <p>Teste valores diferentes. Vazio no valor inicial usa seu saldo atual.</p>
-        </div>
-      </div>
-      <form class="sim-form" @submit.prevent="simulate">
-        <div v-if="simError" class="banner error" role="alert">{{ simError }}</div>
-        <label
-          >Valor inicial (R$)<MaskedInput
-            v-model="sim.initial"
-            inputmode="decimal"
-            placeholder="Saldo atual"
-        /></label>
-        <label
-          >Aporte mensal (R$)<MaskedInput
-            v-model="sim.monthly"
-            inputmode="decimal"
-            placeholder="0,00"
-        /></label>
-        <label
-          >Meses<MaskedInput
-            kind="integer"
-            :scale="0"
-            v-model="sim.months"
-            min="1"
-            max="600"
-            required
-        /></label>
-        <label
-          >CDI anual (%)<MaskedInput
-            kind="decimal"
-            :scale="4"
-            v-model="sim.cdi"
-            inputmode="decimal"
-            :placeholder="pct(data.cdi.annualPercent)"
-        /></label>
-        <label
-          >% do CDI<MaskedInput
-            kind="decimal"
-            :scale="4"
-            v-model="sim.percent"
-            inputmode="decimal"
-            :placeholder="String(data.cdiPercent)"
-        /></label>
-        <button class="button primary" :disabled="simLoading">
-          <Icon name="trend" :size="16" />Simular
+    <section v-if="portfolio.positions.length || portfolio.legacy" class="panel">
+      <div class="panel-heading"><div><h2>Minhas aplicações</h2><p>Selecione uma aplicação para ver os detalhes e registrar movimentações.</p></div></div>
+      <div class="portfolio-grid">
+        <button v-for="item in portfolio.positions" :key="item.position.id" type="button"
+          :class="['portfolio-card', { selected: selectedId === item.position.id }]" @click="selectedId = item.position.id">
+          <span>{{ item.position.institution }} · {{ types[item.position.assetType] }}</span>
+          <b>{{ item.position.name }}</b><strong>{{ money(item.balanceCents) }}</strong>
+          <small>{{ rateLabel(item.currentRate) }} · {{ item.estimated ? 'Estimativa bruta' : 'Valor informado' }}</small>
+          <small>{{ item.gainCents < 0 ? 'Perda' : 'Ganho' }}: {{ money(item.gainCents) }}</small>
         </button>
-      </form>
-      <template v-if="simResult">
-        <div class="projection-grid sim-summary">
-          <article class="projection">
-            <span>Saldo final</span><strong>{{ money(simResult.finalBalanceCents) }}</strong>
-          </article>
-          <article class="projection">
-            <span>Total aportado</span><strong>{{ money(simResult.investedCents) }}</strong>
-          </article>
-          <article class="projection">
-            <span>Rendimento</span><strong>{{ money(simResult.gainCents) }}</strong
-            ><small>{{ pct(simResult.productAnnualPercent) }} a.a.</small>
-          </article>
-        </div>
-        <BaseChart
-          :build="simChart"
-          :watch-source="simResult"
-          label="Simulação de evolução do saldo"
-        />
-      </template>
-    </section>
-    <section v-if="data.movements.length" class="panel">
-      <div class="panel-heading">
-        <div>
-          <h2>Movimentações</h2>
-          <p>Aportes e resgates mais recentes</p>
-        </div>
+        <button v-if="portfolio.legacy" type="button" :class="['portfolio-card', { selected: selectedId === 'legacy' }]" @click="selectedId = 'legacy'">
+          <span>Nubank · cadastro existente</span><b>Caixinha Nubank</b><strong>{{ money(portfolio.legacy.balanceCents) }}</strong>
+          <small>Vinculada aos lançamentos do financeiro</small><small>Ganho: {{ money(portfolio.legacy.gainCents) }}</small>
+        </button>
       </div>
-      <ul class="movement-list">
-        <li v-for="m in data.movements" :key="m.entryId">
-          <span
-            ><strong>{{ m.type === 'DEPOSIT' ? 'Aporte' : 'Resgate' }}</strong> · {{ m.description
-            }}<small>{{ fmtDate(m.date) }}</small></span
-          >
-          <b :class="m.type === 'DEPOSIT' ? '' : 'positive'"
-            >{{ m.type === 'DEPOSIT' ? '+' : '−' }} {{ money(m.amountCents) }}</b
-          >
-        </li>
-      </ul>
     </section>
-    <p class="footnote">
-      Rendimento estimado e bruto, sem IR e IOF, calculado com o CDI diário do Banco Central. O
-      valor real no Nubank pode diferir um pouco.
-    </p>
+    <template v-if="selected">
+      <section class="panel">
+        <div class="panel-heading"><div><h2>{{ selected.position.name }}</h2>
+          <p>{{ selected.position.institution }} · {{ types[selected.position.assetType] }}<span v-if="selected.position.ticker"> · {{ selected.position.ticker }}</span></p></div>
+          <div class="invest-actions"><button class="button subtle" @click="edit(selected)">Editar</button><button class="button subtle" @click="confirmRemoval()">Excluir</button></div>
+        </div>
+        <div class="invest-actions">
+          <button class="button secondary" @click="analysisPanel?.focus(selected.position.id)">Analisar esta aplicação</button>
+          <button class="button primary" @click="openMovement('DEPOSIT')">Aportar</button>
+          <button class="button secondary" @click="openMovement('WITHDRAWAL')">Resgatar</button>
+          <button class="button secondary" @click="openMovement('VALUATION')">Atualizar saldo pelo extrato</button>
+          <button class="button secondary" @click="openMovement('INCOME')">Registrar provento</button>
+        </div>
+        <div class="portfolio-details">
+          <div><span>Regra de rendimento</span><b>{{ rateLabel(selected.currentRate) }}</b><small v-if="selected.currentRate.type !== 'MANUAL'">{{ selected.currentRate.dayBasis === 'BUSINESS' ? 'Dias úteis' : 'Dias corridos' }}</small></div>
+          <div><span>Ganho / perda acumulado</span><b>{{ money(selected.gainCents) }}</b><small>{{ percent(selected.gainPercent) }} sobre o capital aportado</small></div>
+          <div><span>Próximos 30 dias</span><b>{{ selected.next30DaysGainCents == null ? 'Sem projeção automática' : money(selected.next30DaysGainCents) }}</b><small>Sem novos aportes; taxa atual constante</small></div>
+          <div><span>Último saldo informado</span><b>{{ date(selected.lastValuationDate) }}</b><small v-if="selected.position.maturityDate">Vencimento: {{ date(selected.position.maturityDate) }}</small></div>
+        </div>
+        <div v-for="warning in selected.warnings" :key="warning" class="banner">{{ warning }}</div>
+        <p v-if="selected.position.notes" class="muted">{{ selected.position.notes }}</p>
+        <BaseChart v-if="selected.history.length > 1" :build="chart" :watch-source="selected" label="Evolução do investimento selecionado" />
+        <p class="footnote">Estimativas de renda fixa são brutas, sem impostos, taxas ou marcação a mercado. A data de partida não rende novamente. Atualizações pelo extrato substituem o saldo calculado naquela data e preservam o capital aportado.</p>
+      </section>
+      <section class="panel">
+        <div class="panel-heading"><div><h2>Histórico da aplicação</h2><p>Saldo inicial de {{ money(selected.position.openingBalanceCents) }} em {{ date(selected.position.openedOn) }}.</p></div></div>
+        <p v-if="!eventHistory.length" class="muted">Nenhuma movimentação após o saldo inicial.</p>
+        <ul v-else class="movement-list"><li v-for="event in eventHistory" :key="event.id">
+          <span><strong>{{ eventTypes[event.type] }}</strong><small>{{ date(event.date) }}<span v-if="event.notes"> · {{ event.notes }}</span></small></span>
+          <b>{{ event.type === 'RATE_CHANGE' ? rateLabel(event.rate) : money(event.amountCents) }}</b>
+          <button type="button" class="text-link" :aria-label="'Excluir ' + eventTypes[event.type] + ' de ' + date(event.date)" @click="confirmRemoval(event)">Excluir</button>
+        </li></ul>
+      </section>
+    </template>
+    <section v-if="selectedId === 'legacy'" class="legacy-investment"><LegacyInvestment @updated="load" /></section>
+    <section v-if="allocation.length" class="panel">
+      <div class="panel-heading"><div><h2>Distribuição por instituição</h2><p>Onde está o saldo acompanhado.</p></div></div>
+      <ul class="movement-list"><li v-for="[bank, value] in allocation" :key="bank"><span>{{ bank }}</span><b>{{ money(value) }}</b></li></ul>
+    </section>
+    <p class="footnote">CDI: dados públicos gratuitos do Banco Central, armazenados em cache. Não há conexão com sua conta bancária nem API paga. Para renda variável, poupança e produtos indexados à inflação ou à Selic, informe o saldo atual do extrato; uma taxa informada cria apenas uma estimativa.</p>
   </template>
-  <Modal v-if="base" title="Acertar com o Nubank" @close="!saving && (base = null)">
-    <form @submit.prevent="saveBaseline">
-      <div v-if="moveError" class="banner error" role="alert">{{ moveError }}</div>
-      <p class="muted">
-        Copie o resumo do período que o Nubank mostra na caixinha. A partir do saldo final o
-        rendimento é calculado, sem precisar do histórico.
-      </p>
-      <label>Início do período<input v-model="base.from" type="date" :max="today()" /></label>
-      <label>Fim do período<input v-model="base.to" type="date" :max="today()" required /></label>
-      <label
-        >Saldo inicial (R$)<MaskedInput
-          v-model="base.initial"
-          inputmode="decimal"
-          placeholder="0,00"
-      /></label>
-      <label
-        >Entradas (R$)<MaskedInput v-model="base.inflow" inputmode="decimal" placeholder="0,00"
-      /></label>
-      <label
-        >Saídas (R$)<MaskedInput v-model="base.outflow" inputmode="decimal" placeholder="0,00"
-      /></label>
-      <label
-        >Rendimento (R$)<MaskedInput v-model="base.yield" inputmode="decimal" placeholder="0,00"
-      /></label>
-      <label
-        >Rendimento do mês até agora (R$)<MaskedInput
-          v-model="base.monthYield"
-          inputmode="decimal"
-          placeholder="Em branco = calculado pelo CDI"
-      /></label>
-      <label
-        >Saldo final (R$)<MaskedInput
-          v-model="base.final"
-          inputmode="decimal"
-          placeholder="Em branco = calculado"
-      /></label>
-      <p class="muted">
-        Lançamentos de investimento até o fim do período deixam de contar. O rendimento informado
-        vira o ganho já obtido.
-      </p>
-      <div class="modal-actions">
-        <button
-          v-if="data?.baseline"
-          type="button"
-          class="button subtle"
-          :disabled="saving"
-          @click="clearBaseline"
-        >
-          Remover
-        </button>
-        <button type="button" class="button subtle" :disabled="saving" @click="base = null">
-          Cancelar
-        </button>
-        <button class="button primary" :disabled="saving">Salvar</button>
+  <button v-if="portfolio && !portfolio.legacy" class="text-link" @click="selectedId = selectedId === 'legacy' ? '' : 'legacy'">Abrir cadastro anterior da caixinha</button>
+
+  <Modal v-if="form" :title="form.id ? 'Editar investimento' : 'Adicionar investimento'" wide @close="!saving && (form = null)">
+    <form @submit.prevent="savePosition">
+      <div v-if="formError" class="banner error" role="alert">{{ formError }}</div>
+      <div class="portfolio-form-grid">
+        <label>Nome da aplicação<input v-model="form.name" maxlength="120" placeholder="Reserva de emergência" required /></label>
+        <label>Banco ou corretora<input v-model="form.institution" maxlength="120" placeholder="Nubank, Inter, Itaú…" required /></label>
+        <label>Tipo de investimento<select v-model="form.assetType" @change="selectType"><option v-for="(label, key) in types" :key="key" :value="key">{{ label }}</option></select></label>
+        <label>Código / ticker (opcional)<input v-model="form.ticker" maxlength="32" placeholder="Ex.: PETR4, BTC" /></label>
+        <label>Data do saldo de partida<input v-model="form.openedOn" type="date" min="1990-01-01" :max="today()" :disabled="!!form.id" required /></label>
+        <label>Saldo que já tenho (R$)<MaskedInput v-model="form.balance" :disabled="!!form.id" placeholder="0,00" required /></label>
+        <label>Capital aplicado até essa data (R$)<MaskedInput v-model="form.invested" :disabled="!!form.id" placeholder="Em branco = saldo informado" /></label>
+        <label>Vencimento (opcional)<input v-model="form.maturityDate" type="date" :min="form.openedOn" /></label>
+        <label>Como acompanhar o rendimento<select v-model="form.rateType"><option v-for="(label, key) in rates" :key="key" :value="key">{{ label }}</option></select></label>
+        <label v-if="form.rateType !== 'MANUAL'">{{ form.rateType === 'CDI' ? 'Percentual do CDI (%)' : form.rateType === 'ANNUAL' ? 'Taxa anual (%)' : 'Taxa mensal (%)' }}<MaskedInput v-model="form.ratePercent" kind="decimal" :scale="6" min="0" max="1000" required /></label>
+        <label v-if="['ANNUAL', 'MONTHLY'].includes(form.rateType)">Base de cálculo<select v-model="form.dayBasis"><option value="BUSINESS">Dias úteis (252/ano; 21/mês)</option><option value="CALENDAR">Dias corridos (365/ano; 30/mês)</option></select></label>
       </div>
+      <p class="muted">Exemplo: saldo de R$ 1.050 e capital aplicado de R$ 1.000 registram R$ 50 de ganho já acumulado. Se não souber o capital, deixe em branco; os ganhos passam a ser acompanhados a partir desse saldo.</p>
+      <p v-if="form.id" class="muted">Use “Atualizar saldo pelo extrato” para ajustar o valor atual. Alterações na taxa valem a partir de hoje, para o rendimento dos próximos dias.</p>
+      <p v-if="form.rateType === 'CDI'" class="muted">Informe a taxa contratada no seu banco. Ex.: 100 para 100% do CDI ou 110 para 110%. O tipo “caixinha” não define a taxa automaticamente.</p>
+      <p v-if="form.rateType === 'MANUAL'" class="muted">O saldo não muda sozinho. Atualize pelo extrato ou pelo valor de mercado em reais; ganhos e perdas serão calculados sem exigir uma API de cotações.</p>
+      <label>Observações<textarea v-model="form.notes" maxlength="2000" rows="2" placeholder="Liquidez, taxa contratada, objetivo…" /></label>
+      <p class="muted">Este cadastro acompanha a aplicação separadamente e não cria despesas ou receitas no financeiro.</p>
+      <div class="modal-actions"><button type="button" class="button subtle" :disabled="saving" @click="form = null">Cancelar</button><button class="button primary" :disabled="saving">{{ saving ? 'Salvando…' : 'Salvar investimento' }}</button></div>
     </form>
   </Modal>
-  <Modal
-    v-if="move"
-    :title="move.type === 'EXPENSE' ? 'Aportar na caixinha' : 'Resgatar da caixinha'"
-    @close="!saving && (move = null)"
-  >
-    <form @submit.prevent="saveMove">
-      <div v-if="moveError" class="banner error" role="alert">{{ moveError }}</div>
-      <label
-        >Valor (R$)<MaskedInput
-          v-model="move.amount"
-          inputmode="decimal"
-          placeholder="0,00"
-          required
-      /></label>
-      <label>Data e hora<input v-model="move.occurredAt" type="datetime-local" required /></label>
-      <p class="muted">
-        Cria um lançamento na categoria Investimento; o rendimento começa no próximo dia útil.
-      </p>
-      <div class="modal-actions">
-        <button type="button" class="button subtle" :disabled="saving" @click="move = null">
-          Cancelar
-        </button>
-        <button class="button primary" :disabled="saving">Salvar</button>
-      </div>
+  <Modal v-if="movement" :title="eventTypes[movement.type]" @close="!saving && (movement = null)">
+    <form @submit.prevent="saveMovement">
+      <div v-if="formError" class="banner error" role="alert">{{ formError }}</div>
+      <label>{{ movement.type === 'VALUATION' ? 'Saldo total no extrato / valor de mercado (R$)' : 'Valor (R$)' }}<MaskedInput v-model="movement.amount" required placeholder="0,00" /></label>
+      <label>Data<input v-model="movement.date" type="date" :min="selected?.position.openedOn" :max="today()" required /></label>
+      <label>Observação<input v-model="movement.notes" maxlength="500" /></label>
+      <p v-if="movement.type === 'VALUATION'" class="muted">Informe o saldo total, incluindo rendimentos ou perdas, e não só a diferença. O capital aportado não será alterado.</p>
+      <p v-else-if="movement.type === 'INCOME'" class="muted">Dividendos, cupons e outros valores pagos fora da aplicação. Em renda fixa estimada, o valor pago sai do saldo calculado, pois o rendimento já estava acumulado nele. Em saldo manual, o valor de mercado é preservado; atualize pelo extrato quando necessário. Se reinvestir, registre também um aporte.</p>
+      <p class="muted">Esta movimentação pertence à aplicação e não cria um lançamento no financeiro.</p>
+      <div class="modal-actions"><button type="button" class="button subtle" :disabled="saving" @click="movement = null">Cancelar</button><button class="button primary" :disabled="saving">Salvar</button></div>
     </form>
+  </Modal>
+  <Modal v-if="removal" title="Excluir registro" @close="!saving && (removal = null)">
+    <div v-if="formError" class="banner error" role="alert">{{ formError }}</div>
+    <p>Excluir “{{ removal.title }}”{{ removal.eventId ? ' e recalcular o histórico' : ' e todo o histórico desta aplicação' }}?</p>
+    <div class="modal-actions"><button class="button subtle" :disabled="saving" @click="removal = null">Cancelar</button><button class="button primary" :disabled="saving" @click="remove">Excluir</button></div>
   </Modal>
 </template>
+
+<style scoped>
+.portfolio-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1rem; }
+.portfolio-card { display: flex; flex-direction: column; gap: .45rem; padding: 1.2rem; text-align: left; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); color: inherit; cursor: pointer; }
+.portfolio-card.selected { border-color: #8a6fe0; box-shadow: 0 0 0 2px rgba(138,111,224,.15); }
+.portfolio-card strong { font-size: 1.5rem; margin: .25rem 0; }
+.portfolio-card > span, .portfolio-card small, .portfolio-details span, .portfolio-details small { color: var(--muted); font-size: .8rem; }
+.portfolio-details { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1.5rem; margin: 1.5rem 0; }
+.portfolio-details > div { display: flex; flex-direction: column; gap: .35rem; }
+.portfolio-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1rem; }
+.legacy-investment { margin-top: 1.5rem; }
+.stat-card > span { color: var(--muted); }
+.stat-card > strong { margin: .6rem 0; }
+@media (max-width: 600px) { .portfolio-form-grid { grid-template-columns: 1fr; } .portfolio-card { min-width: 0; } }
+</style>

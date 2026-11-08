@@ -28,6 +28,11 @@ public class MonitoringController {
             @RequestParam(required=false) String userId,@RequestParam(required=false) String source){
         owner(user);return result(aiUsage.overview(from,to,userId,source));
     }
+    @GetMapping("/ai-usage/inference") @Operation(summary="Listar métricas internas do Hermes sem conteúdo de mensagens")
+    public ResponseEntity<?> inference(@AuthenticationPrincipal Identity user,@RequestParam(required=false) Instant from,@RequestParam(required=false) Instant to,
+            @RequestParam(required=false) String userId,@RequestParam(required=false) String source,@RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="25") int size){
+        owner(user);return result(aiUsage.inferenceCalls(from,to,userId,source,page,size));
+    }
     @GetMapping("/ai-usage/calls") @Operation(summary="Listar tokens por chamada à IA",description="Histórico dos últimos dois meses, paginado e exclusivo do superadministrador. Não inclui conteúdo das conversas.")
     public ResponseEntity<?> aiCalls(@AuthenticationPrincipal Identity user,@RequestParam(required=false) Instant from,@RequestParam(required=false) Instant to,
             @RequestParam(required=false) String userId,@RequestParam(required=false) String source,@RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="25") int size){

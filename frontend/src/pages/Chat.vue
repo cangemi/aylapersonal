@@ -8,6 +8,7 @@ import {
   waitForChatJob,
   pendingChatJobs,
   acknowledgeChatJob,
+  retryChatJob,
 } from '../lib/chatQueue'
 import { toast, confirmAction } from '../lib/ui'
 import DOMPurify from 'dompurify'
@@ -15,6 +16,7 @@ import { marked } from 'marked'
 import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
 import PersonalChatDialog from '../components/PersonalChatDialog.vue'
+import ProviderLimitNotice from '../components/ProviderLimitNotice.vue'
 const route = useRoute()
 const personalChatOpen = ref(false)
 const conversationPicker = ref(false)
@@ -78,7 +80,8 @@ let historyRequest = 0
 let selectionRequest = 0
 const messages = computed(() => transcripts[active.value] || [])
 const activeTitle = computed(
-  () => conversations.value.find((c) => c.conversationId === active.value)?.title || 'Nova conversa',
+  () =>
+    conversations.value.find((c) => c.conversationId === active.value)?.title || 'Nova conversa',
 )
 const owner = auth.session?.user?.id
 const markdown = (value) => {
@@ -122,7 +125,8 @@ async function load() {
       (conversation) => !deletedConversations.has(conversation.conversationId),
     )
     error.value = ''
-    const targetId = typeof route.query.conversationId === 'string' ? route.query.conversationId : ''
+    const targetId =
+      typeof route.query.conversationId === 'string' ? route.query.conversationId : ''
     const wanted = conversations.value.find((c) => c.conversationId === targetId)
     if (wanted) {
       await select(wanted)
@@ -160,12 +164,29 @@ async function resumeQueued(conversation) {
       const result = await waitForChatJob(job, queueOptions)
       if (destroyed || auth.session?.user?.id !== owner) return
       const list = (transcripts[conversation] ||= [])
-      if (
+      const previous = list.find(
+        (message) => message.role === 'assistant' && message.jobId === job.id,
+      )
+      if (previous && result.jobStatus === 'COMPLETED')
+        Object.assign(previous, {
+          text: result.response,
+          audio: result.audio,
+          availability: null,
+          retryable: false,
+        })
+      else if (
         !list.some((message) => message.role === 'assistant' && message.jobId === job.id) &&
         !(list.at(-1)?.role === 'assistant' && list.at(-1)?.text === result.response)
       )
-        list.push({ role: 'assistant', text: result.response, audio: result.audio, jobId: job.id })
-        // Notificações são enviadas por Web Push pelo backend para evitar duplicidade.
+        list.push({
+          role: 'assistant',
+          text: result.response,
+          audio: result.audio,
+          jobId: job.id,
+          availability: result.availability,
+          retryable: result.retryable,
+        })
+      // Notificações são enviadas por Web Push pelo backend para evitar duplicidade.
       await acknowledgeChatJob(job.id)
     }
     await bottom()
@@ -201,6 +222,8 @@ async function loadMessages(conversation, older = false) {
           (message) => !message.id || !ids.has(message.id),
         ),
       ]
+      if (transcripts[conversation].every((message) => message.createdAt))
+        transcripts[conversation].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
     } else transcripts[conversation] = incoming
     hasMore.value = result.hasMore
     nextOffset.value = result.nextOffset
@@ -304,6 +327,26 @@ async function create() {
     newBusy.value = false
   }
 }
+async function retryLimitedMessage(message) {
+  if (busy.value || !message.retryable || !message.jobId || auth.session?.user?.id !== owner) return
+  busy.value = true
+  try {
+    const result = await retryChatJob(message.jobId, queueOptions)
+    if (destroyed || auth.session?.user?.id !== owner) return
+    Object.assign(message, {
+      text: result.response,
+      audio: result.audio,
+      availability: result.availability,
+      retryable: result.retryable,
+    })
+    await acknowledgeChatJob(message.jobId)
+  } catch (e) {
+    if (!destroyed && e.name !== 'AbortError') toast(e.message, 'error')
+  } finally {
+    busy.value = false
+    queueStatus.value = ''
+  }
+}
 async function send() {
   if (
     deleting.value ||
@@ -367,13 +410,9 @@ async function send() {
           text: result.response,
           audio: result.audio,
           jobId: result.jobId,
+          availability: result.availability,
+          retryable: result.retryable,
         })
-      if (
-        auth.session?.user?.id === owner &&
-        typeof Notification !== 'undefined' &&
-        Notification.permission === 'granted'
-      )
-        new Notification('Ayla', { body: result.response })
       await acknowledgeChatJob(result.jobId)
     } catch (e) {
       if (destroyed || e.name === 'AbortError') return
@@ -515,13 +554,58 @@ watch(
   },
 )
 
+let delayedTimer,
+  delayedPolling = false
+async function refreshDelayedReplies() {
+  const conversation = active.value
+  if (
+    destroyed ||
+    busy.value ||
+    delayedPolling ||
+    !conversation ||
+    document.visibilityState !== 'visible' ||
+    auth.session?.user?.id !== owner ||
+    !(transcripts[conversation] || []).some((m) => m.availability && !m.retryable)
+  )
+    return
+  delayedPolling = true
+  try {
+    const jobs = await pendingChatJobs(conversation)
+    if (destroyed || auth.session?.user?.id !== owner) return
+    const list = transcripts[conversation] || []
+    for (const job of jobs.filter((j) => j.status === 'COMPLETED')) {
+      const previous = list.find((m) => m.role === 'assistant' && m.jobId === job.id)
+      if (previous)
+        Object.assign(previous, {
+          text: job.result.response,
+          audio: job.result.audio,
+          availability: null,
+          retryable: false,
+        })
+      else
+        list.push({
+          role: 'assistant',
+          text: job.result.response,
+          audio: job.result.audio,
+          jobId: job.id,
+        })
+      await acknowledgeChatJob(job.id)
+    }
+  } catch {
+    /* The saved request remains available for a later query. */
+  } finally {
+    delayedPolling = false
+  }
+}
 onMounted(() => {
   load()
+  delayedTimer = setInterval(refreshDelayedReplies, 30000)
   updateViewport()
   window.addEventListener('resize', updateViewport)
   window.visualViewport?.addEventListener('resize', updateViewport)
 })
 onBeforeUnmount(() => {
+  clearInterval(delayedTimer)
   queueAbort.abort()
   window.removeEventListener('resize', updateViewport)
   window.visualViewport?.removeEventListener('resize', updateViewport)
@@ -593,7 +677,9 @@ function keydown(event) {
           <Icon name="chat" /><span>Conversas</span>
         </button>
         <img class="ayla-avatar" src="/ayla-chat.png" alt="" width="256" height="225" />
-        <div><strong>Ayla</strong><small>{{ activeTitle }}</small></div>
+        <div>
+          <strong>Ayla</strong><small>{{ activeTitle }}</small>
+        </div>
         <span class="tag lavender">Vamos conversar</span>
         <button
           class="icon-button mobile-chat-action chat-new-button"
@@ -683,8 +769,15 @@ function keydown(event) {
                   ? 'Você'
                   : 'Não consegui concluir'
             }}</span>
+            <ProviderLimitNotice
+              v-if="message.availability"
+              :availability="message.availability"
+              :retryable="message.retryable"
+              :busy="busy"
+              @retry="retryLimitedMessage(message)"
+            />
             <div
-              v-if="message.role === 'assistant'"
+              v-else-if="message.role === 'assistant'"
               class="markdown"
               v-html="markdown(message.text)"
             />

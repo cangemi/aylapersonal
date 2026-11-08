@@ -112,7 +112,40 @@ public class AiUsageService {
                 +" group by e.provider,e.model order by total_tokens desc,calls desc limit 50",p);
         var daily=jdbc.queryForList("select (e.occurred_at at time zone 'America/Sao_Paulo')::date as day,"+counters+table
                 +" where "+where+" group by day order by day",p);
-        return Map.of("totals",totals,"byUser",byUser,"byModel",byModel,"daily",daily);
+        return Map.of("totals",totals,"byUser",byUser,"byModel",byModel,"daily",daily,"inference",inference(filter));
+    }
+    private Map<String,Object> inference(Filter filter){
+        String finished="e.kind in ('AVAILABLE','RATE_LIMITED','WAITING_PROVIDER','ERROR')";
+        String counters="count(*) filter(where "+finished+") as attempts,"
+            +"count(*) filter(where e.kind='REQUEST') as started_attempts,"
+            +"count(*) filter(where e.kind in ('ERROR','RATE_LIMITED','WAITING_PROVIDER')) as failed_attempts,"
+            +"count(*) filter(where "+finished+" and (e.metrics_json::jsonb->>'retryCount')::bigint>0) as retries";
+        var fields=new LinkedHashMap<String,String>();
+        fields.put("inputTokens","input_tokens");fields.put("outputTokens","output_tokens");fields.put("totalTokens","total_tokens");
+        fields.put("cacheReadTokens","cache_read_tokens");fields.put("cacheWriteTokens","cache_write_tokens");
+        fields.put("systemBytes","system_bytes");fields.put("toolBytes","tool_bytes");
+        fields.put("memoryBytes","memory_bytes");fields.put("historyBytes","history_bytes");
+        fields.put("durationMs","duration_ms");
+        for(var field:fields.entrySet())counters+=",sum((e.metrics_json::jsonb->>'"+field.getKey()+"')::bigint) filter(where "+finished+") as "+field.getValue();
+        counters+=",sum((e.metrics_json::jsonb->>'toolCalls')::bigint) filter(where e.kind='TOOL') as tool_calls";
+        String table=" from provider_inference_events e where "+filter.sql();
+        var totals=jdbc.queryForMap("select "+counters+table,filter.params());
+        var byModel=jdbc.queryForList("select e.provider,e.model,"+counters+table+" group by e.provider,e.model order by attempts desc limit 50",filter.params());
+        return Map.of("totals",totals,"byModel",byModel,"componentUnit","UTF8_BYTES_LOCAL_JSON",
+            "providerTokens","REPORTED_ONLY","componentTokensAvailable",false,"tenantScope","PERSONAL_USER",
+            "note","Observações internas do Hermes: não somar aos totais das chamadas à API acima. Cache só quando informado pelo provedor; componentes são tamanhos locais em bytes, não tokens. Tenant empresarial e custo não informados neste fluxo pessoal.");
+    }
+    public Map<String,Object> inferenceCalls(Instant from,Instant to,String userId,String source,int page,int size){
+        if(page<0||page>10000||size<1||size>100)throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Paginação inválida.");
+        var filter=filter(from,to,userId,source);var p=filter.params();p.put("limit",size);p.put("offset",page*size);
+        var rows=jdbc.queryForList("""
+            select e.id,e.occurred_at,e.user_id,e.tenant_id,e.profile,e.provider,e.model,e.request_id,e.source,e.kind,e.metrics_json
+            from provider_inference_events e where
+            """+filter.sql()+" and e.kind<>'REQUEST' order by e.occurred_at desc,e.id limit :limit offset :offset",p);
+        var json=tools.jackson.databind.json.JsonMapper.builder().build();
+        for(var row:rows){var raw=row.remove("metrics_json");row.put("metrics",raw instanceof String text?json.readValue(text,Map.class):Map.of());}
+        Long total=jdbc.queryForObject("select count(*) from provider_inference_events e where "+filter.sql()+" and e.kind<>'REQUEST'",p,Long.class);
+        return Map.of("items",rows,"total",total==null?0:total,"page",page,"size",size);
     }
     public Map<String,Object> calls(Instant from,Instant to,String userId,String source,int page,int size) {
         if(page<0||page>10000||size<1||size>100)

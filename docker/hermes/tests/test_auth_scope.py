@@ -21,6 +21,32 @@ def _nous_shared_auth_dir() -> Path:
 
 
 class AuthScopeTest(unittest.TestCase):
+    def test_missing_profile_credentials_never_read_the_global_account(self):
+        upstream = '''from pathlib import Path
+from typing import Optional
+def _global_auth_file_path() -> Optional[Path]:
+    from hermes_constants import get_default_hermes_root
+    return get_default_hermes_root() / "auth.json"
+def read_credentials(local):
+    if local:
+        return local
+    path = _global_auth_file_path()
+    return path.read_text() if path else None
+'''
+        patched = prepare_auth.disable_global_auth_fallback(upstream)
+        namespace = {}
+        exec(patched, namespace)
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "auth.json").write_text("owner-secret")
+            constants = SimpleNamespace(get_default_hermes_root=lambda: root)
+            with patch.dict(sys.modules, hermes_constants=constants):
+                self.assertIsNone(namespace["read_credentials"](None))
+                self.assertEqual("alice-secret", namespace["read_credentials"]("alice-secret"))
+        self.assertEqual(patched, prepare_auth.disable_global_auth_fallback(patched))
+        with self.assertRaises(RuntimeError):
+            prepare_auth.disable_global_auth_fallback("def changed_auth(): pass\n")
+
     def test_concurrent_profiles_have_independent_writable_oauth_stores(self):
         active_home = contextvars.ContextVar("active_home")
         constants = SimpleNamespace(get_hermes_home=active_home.get)

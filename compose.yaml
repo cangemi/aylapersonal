@@ -25,6 +25,11 @@ services:
       HERMES_HOME: /opt/data
       AYLA_JAVA_BASE_URL: ${AYLA_JAVA_BASE_URL:-http://host.docker.internal:8080}
       AYLA_FINANCE_BRIDGE_KEY: ${AYLA_FINANCE_BRIDGE_KEY:?Defina AYLA_FINANCE_BRIDGE_KEY no arquivo .env}
+      AYLA_TOOL_SEARCH_MODE: ${AYLA_TOOL_SEARCH_MODE:-on}
+      AYLA_AGENT_MAX_TURNS: ${AYLA_AGENT_MAX_TURNS:-8}
+      AYLA_HISTORY_RECENT_TURNS: ${AYLA_HISTORY_RECENT_TURNS:-6}
+      AYLA_HISTORY_MAX_CHARS: ${AYLA_HISTORY_MAX_CHARS:-24000}
+      AYLA_HISTORY_HANDOFF_CHARS: ${AYLA_HISTORY_HANDOFF_CHARS:-4000}
       HERMES_DASHBOARD: "1"
       HERMES_DASHBOARD_HOST: "0.0.0.0"
       HERMES_DASHBOARD_BASIC_AUTH_USERNAME: ${HERMES_DASHBOARD_USERNAME:-ayla}
@@ -41,6 +46,7 @@ services:
       - ./docker/hermes/SOUL.md:/opt/ayla/SOUL.md:ro
       - ./docker/hermes/plugins/ayla-research:/opt/ayla/plugins/ayla-research:ro
       - ./docker/hermes/plugins/ayla-finance:/opt/ayla/plugins/ayla-finance:ro
+      - ./docker/hermes/plugins/ayla-provider-monitor:/opt/ayla/plugins/ayla-provider-monitor:ro
     healthcheck:
       test: ["CMD", "/opt/hermes/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8642/health', timeout=5)"]
       interval: 20s

@@ -7,6 +7,9 @@ import org.springframework.stereotype.Service;
 public class HermesModels {
     public record Model(String provider, String model, boolean free) {}
     private final HermesClient client;
+    private ModelAvailabilityService availability;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setAvailability(ModelAvailabilityService availability){this.availability=availability;}
     private record Cached(List<Model> models,long expires) {}
     private final java.util.concurrent.ConcurrentMap<String,Cached> cache=new java.util.concurrent.ConcurrentHashMap<>();
     public HermesModels(HermesClient client) { this.client = client; }
@@ -14,6 +17,7 @@ public class HermesModels {
     public List<Model> available() {
         return available("default");
     }
+    public void invalidate(String profile){cache.remove(profile);}
     public List<Model> available(String profile) {
         long now=System.nanoTime();var cached=cache.get(profile);
         if(cached!=null&&cached.expires()>now)return cached.models();
@@ -63,6 +67,22 @@ public class HermesModels {
         if (models.isEmpty()) throw new HermesException(503,
                 "Nenhum modelo gratuito Nous disponível no Hermes. Conclua o login/configuração do Hermes ou aguarde a renovação do limite gratuito.");
         if (configured == null || configured.isBlank()) {
+            if(availability!=null){
+                var states=availability.modelsForProfile(profile);
+                var usable=models.stream().filter(candidate->states.stream().noneMatch(state->candidate.model().equals(state.model())
+                    && Set.of("RATE_LIMITED","WAITING_PROVIDER").contains(state.status()))).toList();
+                // If every observation lacks a deadline, preserve the opportunity for a new request.
+                // Known future deadlines are still enforced by the HTTP adapter.
+                if(!usable.isEmpty())models=usable;
+                // Keep a working free model instead of probing the preferred model again
+                // as soon as its estimated cooldown ends. Success, not expiry, proves health.
+                var candidates=new HashMap<String,Model>();
+                models.forEach(candidate->candidates.put(candidate.model(),candidate));
+                var healthy=states.stream().filter(state->"AVAILABLE".equals(state.status())
+                        &&state.confirmedAt()!=null&&candidates.containsKey(state.model()))
+                    .max(Comparator.comparing(ProviderUsageData.Availability::confirmedAt));
+                if(healthy.isPresent())return candidates.get(healthy.get().model());
+            }
             // Prefer the free model validated for native financial tool calls; respect manual selection.
             return models.stream().filter(m -> m.model().equals("stepfun/step-3.7-flash:free"))
                     .findFirst().orElse(models.getFirst());

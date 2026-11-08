@@ -106,6 +106,10 @@ public class ChatController {
         return org.springframework.http.ResponseEntity.accepted().cacheControl(org.springframework.http.CacheControl.noStore())
                 .header("Location","/api/v1/chat/jobs/"+job.id()).header("Retry-After","2").body(job);
     }
+    @PostMapping("/jobs/{id}/retry")
+    public ayla.chat.queue.ChatQueueStore.Job retry(@org.springframework.web.bind.annotation.PathVariable java.util.UUID id,java.security.Principal principal){
+        return queue.retry(identity.resolve(principal),id);
+    }
     private String jobUser(java.security.Principal principal,String authorization,String whatsappChat){
         return whatsappChat==null?identity.resolve(principal):whatsapp.inspect(authorization,whatsappChat).userId();
     }

@@ -240,6 +240,26 @@ Fontes oficiais:
 
 ## Isolamento entre contas
 
+O bootstrap desativa a leitura de `auth.json` global como alternativa ao arquivo
+do perfil e mantém o armazenamento e o lock OAuth Nous dentro de cada perfil.
+Separar apenas `API_SERVER_KEY` não separa o consumo de inferência: essa chave
+autentica Java → Hermes. Os tokens e limites pertencem à conta Nous autorizada
+em **Conexões → Hermes → Conectar conta Nous**. O fluxo abre a autorização oficial
+e salva as credenciais no perfil selecionado; não exige copiar chaves manualmente.
+Para consumo separado, cada pessoa deve autorizar sua própria conta Nous.
+
+Perfis de usuários que ainda não concluíram um OAuth vinculado à sua conta na
+Ayla ficam bloqueados para conversar, mesmo se contiverem credenciais antigas.
+Conclua novamente a conexão nesses perfis após atualizar Hermes e a API Java.
+O proprietário também precisa de um login Nous válido para conversar. A confirmação
+não compara prévias de tokens, que podem coincidir ou mudar durante a renovação.
+Uma aprovação OAuth sem login salvo no perfil não libera o chat.
+
+Para aplicar, recrie o serviço Hermes (`docker compose up -d --force-recreate hermes`)
+e publique a API e o frontend atualizados. Não é necessário apagar os volumes,
+as conversas ou as memórias. Não publique apenas a API: a correção do bootstrap
+precisa estar ativa para impedir a herança de credenciais no Hermes.
+
 Cada usuário tem um perfil Hermes exclusivo e uma chave de API própria, além de sessões de conversa vinculadas ao seu ID no PostgreSQL. Somente a conta principal utiliza `default`. Perfil ausente, compartilhado ou reservado resulta em bloqueio, sem recorrer ao perfil principal. Configurações pessoais de voz e instruções também não recorrem às configurações salvas do proprietário. A autorização OAuth fica vinculada ao usuário e ao perfil que iniciaram o fluxo e expira em quinze minutos; a migração V29 persiste esse vínculo no PostgreSQL, permitindo consultar o fluxo em outra réplica ou após reiniciar a API.
 
 Novos perfis são clonados de `ayla-internal-template`, criado pelo bootstrap apenas com configurações e plugins da aplicação, personalidade base e uma chave aleatória. Não é usado o perfil principal como origem: a clonagem nativa pode copiar `.env`, identidade e memórias. A seleção de perfil fica validada no Java antes de encaminhar as chamadas ao Hermes. A conexão WhatsApp também é selecionada pelo usuário autenticado, sem aceitar que o navegador escolha outra conta.

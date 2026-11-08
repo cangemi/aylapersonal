@@ -17,6 +17,15 @@ public class ConversationContextBridge {
     private final byte[] key;
     public ConversationContextBridge(ConversationContext context,@Value("${ayla.finance.bridge-key:}") String key){this.context=context;this.key=key.getBytes(StandardCharsets.UTF_8);}
     public record Search(@NotBlank @Size(max=300) String query) {}
+    @PostMapping("/history")
+    public Object history(@RequestHeader(value="Authorization",defaultValue="") String auth,
+            @RequestHeader(value="X-Ayla-Session",defaultValue="") String session,@Valid @RequestBody Search input){
+        if(key.length<32||!auth.startsWith("Bearer ")||!MessageDigest.isEqual(key,auth.substring(7).getBytes(StandardCharsets.UTF_8)))
+            throw new HermesException(401,"Integração não autorizada.");
+        var scope=context.requireCollect(session);
+        ayla.monitoring.MonitoringContext.user(scope.userId());
+        return Map.of("items",context.history(scope,input.query()),"referenceOnly",true);
+    }
     @PostMapping("/search")
     public Object search(@RequestHeader(value="Authorization",defaultValue="") String auth,
                          @RequestHeader(value="X-Ayla-Session",defaultValue="") String session,

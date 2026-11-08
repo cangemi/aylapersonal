@@ -1,0 +1,42 @@
+{
+  "kind": "source_measurement_not_provider_tokens",
+  "soul_utf8_bytes": 38985,
+  "java_instruction_literals_utf8_bytes": 34786,
+  "custom_tools": {
+    "TOOLS": {
+      "count": 7,
+      "json_utf8_bytes": 7285
+    },
+    "INVESTMENT_TOOLS": {
+      "count": 10,
+      "json_utf8_bytes": 7361
+    },
+    "MEMORY_TOOLS": {
+      "count": 3,
+      "json_utf8_bytes": 2649
+    },
+    "HOUSEHOLD_TOOLS": {
+      "count": 9,
+      "json_utf8_bytes": 9031
+    },
+    "CALENDAR_TOOLS": {
+      "count": 14,
+      "json_utf8_bytes": 14833
+    },
+    "ALARM_TOOLS": {
+      "count": 5,
+      "json_utf8_bytes": 2703
+    },
+    "CONTEXT_TOOLS": {
+      "count": 1,
+      "json_utf8_bytes": 641
+    }
+  },
+  "real_tokens": null,
+  "runtime_report_user": {
+    "system_bytes": 46402,
+    "tool_bytes": 49406,
+    "tools": 50
+  },
+  "note": "Compact schema JSON without prefixes; Java literals exclude dynamic user/profile/memory/calendar values and Hermes built-in prompt. Bytes are not tokens."
+}

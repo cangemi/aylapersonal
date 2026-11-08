@@ -41,6 +41,40 @@ class ConversationHistoryTest {
         api=MockMvcBuilders.standaloneSetup(controller).setControllerAdvice(new HermesExceptionHandler()).build();
     }
     @AfterEach void stop(){server.stop(0);}
+    @Test void persistedFailureNoticeKeepsItsJobIdentityWhenReloadingTheChat(){
+        status.set(404);
+        var job=UUID.randomUUID();var proactive=mock(ProactiveMessageService.class);
+        when(proactive.listSince("owner",id,null)).thenReturn(List.of(new ConversationHistory.Message("proactive:"+job,"assistant",
+            "Não consegui confirmar a conclusão.",List.of(),java.time.Instant.now(),job)));
+        var client=new HermesClient("http://127.0.0.1:"+server.getAddress().getPort(),"test-key",5);
+        var page=new ConversationHistory(conversations,client,proactive).list("owner",id,100,0);
+        assertThat(page.items()).hasSize(1);
+        assertThat(page.items().getFirst().jobId()).isEqualTo(job);
+        assertThat(page.items().getFirst().text()).contains("Não consegui confirmar");
+    }
+    @Test void interleavesAlertsWithMessagesByTheirOriginalTime() {
+        rows=List.of(
+            Map.of("id",1,"role","user","content","antes","timestamp",1000),
+            Map.of("id",2,"role","assistant","content","depois","timestamp",3000));
+        var proactive=mock(ProactiveMessageService.class);
+        when(proactive.listSince("owner",id,null)).thenReturn(List.of(
+            new ConversationHistory.Message("proactive:alert","assistant","lembrete",List.of(),java.time.Instant.ofEpochSecond(2000))));
+        var client=new HermesClient("http://127.0.0.1:"+server.getAddress().getPort(),"test-key",5);
+        var history=new ConversationHistory(conversations,client,proactive);
+        assertThat(history.list("owner",id,100,0).items()).extracting(ConversationHistory.Message::text)
+            .containsExactly("antes","lembrete","depois");
+    }
+    @Test void loadsAlertsAlongsideOlderPagesWithoutThePreviousFiveAlertLimit() {
+        rows=List.of(Map.of("id",1,"role","user","content","antiga","timestamp",1000));
+        var proactive=mock(ProactiveMessageService.class);
+        var alerts=java.util.stream.IntStream.range(0,7).mapToObj(i -> new ConversationHistory.Message(
+            "proactive:"+i,"assistant","alerta "+i,List.of(),java.time.Instant.ofEpochSecond(2000+i))).toList();
+        when(proactive.listSince("owner",id,java.time.Instant.ofEpochSecond(1000))).thenReturn(alerts);
+        var client=new HermesClient("http://127.0.0.1:"+server.getAddress().getPort(),"test-key",5);
+        var page=new ConversationHistory(conversations,client,proactive).list("owner",id,1,10);
+        assertThat(page.items()).hasSize(8);
+        assertThat(page.nextOffset()).isEqualTo(11);
+    }
     @Test void readsOwnedPersistedHistoryAndFiltersInternalRowsAndPayloads() throws Exception {
         rows=List.of(
             Map.of("id",1,"role","system","content","system-secret"),

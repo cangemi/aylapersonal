@@ -8,6 +8,32 @@ import static org.mockito.Mockito.*;
 import static org.assertj.core.api.Assertions.*;
 
 class HermesUserIsolationTest {
+    @Test void legacyCredentialsWithoutUserAuthorizationCannotConsumeTokens() {
+        var jdbc=mock(JdbcTemplate.class);var dashboard=mock(HermesDashboardClient.class);var scope=mock(HermesUserScope.class);
+        var service=new HermesAccountService(jdbc,mock(ChatUserRepository.class),new ChatIdentity("owner"),dashboard,mock(HermesClient.class),mock(HermesModels.class),scope);
+        when(scope.profile("alice",true)).thenReturn("profile-a");
+        assertThatThrownBy(()->service.requireOwnLogin("alice")).isInstanceOfSatisfying(HermesException.class,e->assertThat(e.status()).isEqualTo(409));
+        verifyNoInteractions(dashboard);
+    }
+    @Test void authorizedProfileUsesItsOwnStatusWithoutComparingTokenPreviews() {
+        var jdbc=mock(JdbcTemplate.class);var dashboard=mock(HermesDashboardClient.class);var scope=mock(HermesUserScope.class);
+        var service=new HermesAccountService(jdbc,mock(ChatUserRepository.class),new ChatIdentity("owner"),dashboard,mock(HermesClient.class),mock(HermesModels.class),scope);
+        when(scope.profile("alice",true)).thenReturn("profile-a");
+        when(jdbc.queryForObject(anyString(),eq(Boolean.class),eq("profile-a"))).thenReturn(true);
+        when(dashboard.admin("GET","/api/providers/oauth?profile=profile-a",null)).thenReturn(Map.of("providers",List.of(Map.of("id","nous","status",Map.of("logged_in",true)))));
+        service.requireOwnLogin("alice");
+        verify(dashboard,never()).admin("GET","/api/providers/oauth",null);
+    }
+    @Test void approvalWithoutCredentialsInTheProfileIsNotCompleted() {
+        var jdbc=mock(JdbcTemplate.class);var dashboard=mock(HermesDashboardClient.class);var scope=mock(HermesUserScope.class);
+        var service=new HermesAccountService(jdbc,mock(ChatUserRepository.class),new ChatIdentity("owner"),dashboard,mock(HermesClient.class),mock(HermesModels.class),scope);
+        when(scope.profile("alice",false)).thenReturn("profile-a");
+        when(jdbc.queryForList(anyString(),eq(String.class),eq("alice"),eq("login-session-123"))).thenReturn(List.of("profile-a"));
+        when(dashboard.admin("GET","/api/providers/oauth/nous/poll/login-session-123?profile=profile-a",null)).thenReturn(Map.of("status","approved"));
+        when(dashboard.admin("GET","/api/providers/oauth?profile=profile-a",null)).thenReturn(Map.of());
+        assertThatThrownBy(()->service.pollLogin("alice","login-session-123")).isInstanceOf(HermesException.class);
+        verify(jdbc,never()).update(contains("completed_at=now()"),eq("alice"),eq("login-session-123"));
+    }
     @Test void unprovisionedUserNeverReadsOrWritesTheOwnersSettings() {
         var jdbc=mock(JdbcTemplate.class);var repository=mock(HermesConfigurationRepository.class);var models=mock(HermesModels.class);
         var scope=new HermesUserScope(jdbc,new ChatIdentity("owner"));

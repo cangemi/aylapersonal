@@ -7,7 +7,7 @@ import { ref, watch, onBeforeUnmount } from 'vue'
 import { auth, api } from '../lib/api'
 import Icon from './Icon.vue'
 const count = ref(0)
-let timer, revision = 0, alive = true, seen = new Set()
+let timer, revision = 0, alive = true
 async function load() {
   const user = auth.session?.user?.id, current = ++revision
   if (!user) return
@@ -16,29 +16,14 @@ async function load() {
     const items = Array.isArray(result) ? result : []
     if (alive && current === revision && user === auth.session?.user?.id) {
       count.value = items.length
-      if (Notification.permission === 'granted') {
-        for (const item of items) {
-          if (!seen.has(item.id)) {
-            seen.add(item.id)
-            new Notification(item.title || 'Alarme', {
-              body: item.dueAt
-                ? new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(
-                    new Date(item.dueAt),
-                  )
-                : '',
-            })
-          }
-        }
-      }
     }
   } catch {}
 }
 watch(() => auth.session?.user?.id, () => {
-  count.value = 0; seen.clear(); clearInterval(timer); load()
+  count.value = 0; clearInterval(timer); load()
   timer = setInterval(() => { if (!document.hidden) load() }, 15000)
 }, { immediate: true })
 onBeforeUnmount(() => { alive = false; revision++; clearInterval(timer) })
-if (typeof Notification !== 'undefined' && Notification.permission === 'default') Notification.requestPermission().catch(() => {})
 </script>
 <style scoped>
 .icon-button { position: relative; }

@@ -9,7 +9,7 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import org.springframework.http.converter.HttpMessageNotReadableException;
 
 @RestControllerAdvice(assignableTypes={FinanceController.class,FinanceBridgeController.class,
-        ayla.investment.InvestmentController.class,ayla.investment.InvestmentBridge.class})
+        ayla.investment.InvestmentController.class,ayla.investment.PortfolioController.class,ayla.investment.InvestmentBridge.class})
 public class FinanceExceptionHandler {
     @ExceptionHandler(FinanceException.class)
     public ResponseEntity<?> finance(FinanceException e) { return ResponseEntity.status(e.status()).body(Map.of("error",e.getMessage())); }

@@ -1,0 +1,7 @@
+{
+  "name": "ayla-finance",
+  "label": "Ayla",
+  "version": "1.12.0",
+  "description": "Consulta autenticada da cota oficial Nous para a Ayla.",
+  "api": "api.py"
+}

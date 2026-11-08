@@ -14,6 +14,10 @@ const usage = ref(null),
 const selectedUser = ref(props.filters.userId || ''),
   period = ref('filters')
 const number = (value) => Number(value || 0).toLocaleString('pt-BR')
+const observed = (value) => (value == null ? 'Não informado' : number(value))
+const inferenceRows = ref(null),
+  inferenceBusy = ref(false),
+  inferenceError = ref('')
 let generation = 0
 function parameters() {
   const params = { ...props.filters, userId: selectedUser.value }
@@ -40,7 +44,10 @@ async function load() {
   error.value = ''
   try {
     const result = await api('/monitoring/ai-usage?' + query(parameters()))
-    if (generation === current) usage.value = result
+    if (generation === current) {
+      usage.value = result
+      inferenceRows.value = null
+    }
   } catch (failure) {
     if (generation === current) {
       error.value =
@@ -60,6 +67,55 @@ watch(
 )
 function changeFilters() {
   load()
+}
+async function loadInference() {
+  if (inferenceBusy.value) return
+  const current = generation
+  inferenceBusy.value = true
+  inferenceError.value = ''
+  try {
+    const result = await api(
+      '/monitoring/ai-usage/inference?' + query({ ...parameters(), size: 25 }),
+    )
+    if (current === generation) inferenceRows.value = result
+  } catch {
+    if (current === generation)
+      inferenceError.value = 'Não foi possível consultar as observações internas.'
+  } finally {
+    inferenceBusy.value = false
+  }
+}
+function contextChart(theme) {
+  const totals = usage.value?.inference?.totals || {}
+  return {
+    type: 'bar',
+    data: {
+      labels: ['Sistema', 'Ferramentas', 'Memória', 'Mensagens e histórico'],
+      datasets: [
+        {
+          label: 'Bytes UTF-8 observados',
+          data: ['system_bytes', 'tool_bytes', 'memory_bytes', 'history_bytes'].map((key) =>
+            totals[key] == null ? null : Number(totals[key]),
+          ),
+          backgroundColor: ['#b7a0ef', '#81c6ac', '#e0a46f', '#88b7df'],
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: theme.text }, grid: { color: theme.grid } },
+        y: {
+          beginAtZero: true,
+          ticks: { color: theme.text, callback: number },
+          grid: { color: theme.grid },
+          title: { display: true, text: 'Bytes locais, não tokens', color: theme.text },
+        },
+      },
+    },
+  }
 }
 onBeforeUnmount(() => {
   generation++
@@ -191,9 +247,113 @@ function chartConfig(theme) {
         :watch-source="usage.daily"
         label="Tokens por dia, no horário de Brasília"
       />
+      <details v-if="usage.inference" class="monitor-breakdown">
+        <summary>Contexto, cache e tentativas internas do Hermes</summary>
+        <p>{{ usage.inference.note }}</p>
+        <div class="monitor-metrics">
+          <article>
+            <span>Tentativas com resultado observado</span
+            ><strong>{{ number(usage.inference.totals.attempts) }}</strong
+            ><small
+              >{{ number(usage.inference.totals.failed_attempts) }} falhas/limites ·
+              {{ number(usage.inference.totals.retries) }} retries</small
+            >
+          </article>
+          <article>
+            <span>Tokens lidos do cache</span
+            ><strong>{{ observed(usage.inference.totals.cache_read_tokens) }}</strong
+            ><small>Contador do provedor, quando disponível</small>
+          </article>
+          <article>
+            <span>Tokens escritos no cache</span
+            ><strong>{{ observed(usage.inference.totals.cache_write_tokens) }}</strong
+            ><small>Sem inferir cache por repetição do prompt</small>
+          </article>
+          <article>
+            <span>Chamadas de ferramentas observadas</span
+            ><strong>{{ observed(usage.inference.totals.tool_calls) }}</strong
+            ><small>Não inclui conteúdo nem argumentos</small>
+          </article>
+        </div>
+        <BaseChart
+          v-if="Number(usage.inference.totals.attempts)"
+          :build="contextChart"
+          :watch-source="usage.inference"
+          label="Composição local do contexto em bytes, não tokens"
+        />
+        <p class="muted">
+          Os componentes acima são tamanhos de JSON local em bytes UTF-8. A divisão em tokens por
+          componente e o custo não foram informados. Não há conversão de bytes para tokens.
+        </p>
+        <button class="button secondary" :disabled="inferenceBusy" @click="loadInference">
+          {{ inferenceBusy ? 'Consultando…' : 'Ver observações por requisição' }}
+        </button>
+        <p v-if="inferenceError" role="alert">{{ inferenceError }}</p>
+        <div v-if="inferenceRows" class="table-wrap">
+          <table class="responsive-table">
+            <thead>
+              <tr>
+                <th>Data / usuário</th>
+                <th>Modelo / estado</th>
+                <th>Tokens reais</th>
+                <th>Cache</th>
+                <th>Contexto local</th>
+                <th>Tentativa / duração</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in inferenceRows.items" :key="row.id">
+                <td data-label="Usuário">
+                  {{ new Date(row.occurred_at).toLocaleString('pt-BR')
+                  }}<small class="block muted"
+                    >{{ row.user_id }} · {{ row.tenant_id || 'Escopo pessoal' }}</small
+                  >
+                </td>
+                <td data-label="Modelo">
+                  {{ row.model || 'Não informado'
+                  }}<small class="block muted">{{ row.provider }} · {{ row.kind }}</small>
+                </td>
+                <td data-label="Tokens">
+                  Entrada: {{ observed(row.metrics.inputTokens)
+                  }}<small class="block muted"
+                    >Saída: {{ observed(row.metrics.outputTokens) }}</small
+                  >
+                </td>
+                <td data-label="Cache">
+                  Leitura: {{ observed(row.metrics.cacheReadTokens)
+                  }}<small class="block muted"
+                    >Escrita: {{ observed(row.metrics.cacheWriteTokens) }}</small
+                  >
+                </td>
+                <td data-label="Contexto">
+                  Sistema: {{ observed(row.metrics.systemBytes) }} B<small class="block muted"
+                    >Ferramentas: {{ observed(row.metrics.toolBytes) }} B · Memória:
+                    {{ observed(row.metrics.memoryBytes) }} B · Mensagens:
+                    {{ observed(row.metrics.historyBytes) }} B</small
+                  >
+                </td>
+                <td data-label="Tentativa">
+                  Retry: {{ observed(row.metrics.retryCount) }} ·
+                  {{ observed(row.metrics.durationMs) }} ms<small
+                    v-if="row.metrics.httpStatus"
+                    class="block muted"
+                    >HTTP {{ row.metrics.httpStatus }}</small
+                  ><small class="block muted"
+                    >Pedido: {{ row.request_id || 'Sem correlação' }}</small
+                  >
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="muted">
+            Até 25 observações mais recentes deste filtro; {{ number(inferenceRows.total) }} no
+            total. A API permite paginação.
+          </p>
+        </div>
+      </details>
       <p class="muted">
-        Cada chamada aparece no fluxo de atividade abaixo, junto com as operações da API, com
-        modelo e tokens na própria linha.
+        Cada chamada aparece no fluxo de atividade abaixo, junto com as operações da API, com modelo
+        e tokens na própria linha.
       </p>
       <details class="monitor-breakdown">
         <summary>Detalhamento por usuário e por modelo</summary>

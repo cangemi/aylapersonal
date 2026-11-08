@@ -8,21 +8,27 @@ import secrets
 
 # Native dashboard speech defaults to WhatsApp-compatible Opus; session contexts override this.
 os.environ.setdefault("HERMES_SESSION_PLATFORM", "whatsapp")
+os.environ.setdefault("AYLA_PROVIDER_MONITOR_BACKGROUND", "1")
 home = Path(os.environ.get("HERMES_HOME", "/opt/data"))
 home.mkdir(parents=True, exist_ok=True)
 path = home / "config.yaml"
 # JSON is valid YAML. This file is managed by Ayla; auth and sessions use separate files.
 config = {}
 config["model"] = {"provider": "nous", "default": "nous/welcome"}
-config["fallback_model"] = []
+# Fallback chain keeps chat working when the primary free model is rate-limited by
+# Nous; models must stay on Nous and remain free-only (see ayla.hermes.HermesModels).
+config["fallback_model"] = [
+    {"provider": "nous", "model": model} for model in (
+        "upstage/solar-mini4:free", "meituan/longcat-2.5:free",
+        "reflection/beam-1.0-501b-a23b:free", "stealth/crouton-alpha")]
 config["stt"] = {"enabled": True, "provider": "local", "language": "pt", "local": {"model": "base", "device": "cpu", "compute_type": "int8", "language": "pt", "unload_after_idle_seconds": 300}}
 # Java reapplies the PostgreSQL voice settings before synthesis; these are initial defaults.
 config["tts"] = {"provider": "edge", "edge": {"voice": "pt-BR-FranciscaNeural", "speed": 1.02, "pitch": "+2Hz"}}
 config["compression"] = {"enabled": False}
 config["context"] = {"engine": "ayla-conversation"}
-config["agent"] = {"max_turns": 4, "reasoning_effort": {"enabled": False}}
-# With this small toolset, expose schemas directly instead of deferring finance tools.
-config["tools"] = {"tool_search": {"enabled": "off"}}
+config["agent"] = {"max_turns": 8, "reasoning_effort": {"enabled": False}, "api_max_retries": 1, "auto_recovery_cycles": 0}
+# Use native progressive disclosure; configure.py checks image compatibility before startup.
+config["tools"] = {"tool_search": {"enabled": "on", "listing": "auto"}, "connectors": {"enabled": False}}
 config["auxiliary"] = {
     "vision": {"provider": "nous", "model": "stepfun/step-3.7-flash:free"},
     "title_generation": {"enabled": False, "model_upgrade_enabled": False},
@@ -40,13 +46,14 @@ config["memory"] = {
 config["plugins"] = {"enabled": ["ayla-research", "ayla-finance"], "hook_callback_timeout": 120, "entries": {"ayla-research": {"llm": {"allow_provider_override": True, "allowed_providers": ["nous"], "allow_model_override": True, "allowed_models": ["*"]}}}}
 config.setdefault("web", {}).update({"backend": "ddgs", "search_backend": "ddgs", "keyless_fallback": False})
 path.write_text(json.dumps(config, ensure_ascii=False, indent=2))
-for plugin_id in ("ayla-research", "ayla-finance"):
+for plugin_id in ("ayla-research", "ayla-finance", "ayla-provider-monitor"):
     plugin = home / "plugins" / plugin_id
     plugin.mkdir(parents=True, exist_ok=True)
     for name in ("plugin.yaml", "__init__.py"):
         shutil.copyfile(Path("/opt/ayla/plugins") / plugin_id / name, plugin / name)
 persona = Path("/opt/ayla/SOUL.md")
 active_persona = home / "SOUL.md"
+prior_managed_persona = active_persona.read_bytes() if active_persona.is_file() else None
 if active_persona.exists() and active_persona.read_bytes() != persona.read_bytes():
     backup = home / "SOUL.md.before-ayla"
     if not backup.exists():
@@ -85,7 +92,7 @@ for relative, content in {
     if target.is_symlink():
         raise RuntimeError("Neutral Hermes template file is a symlink")
     target.write_text(content, encoding="utf-8")
-for plugin_id in ("ayla-research", "ayla-finance"):
+for plugin_id in ("ayla-research", "ayla-finance", "ayla-provider-monitor"):
     target = template / "plugins" / plugin_id
     if target.is_symlink():
         raise RuntimeError("Neutral Hermes plugin path is a symlink")
@@ -104,9 +111,20 @@ for target in [template, *template.rglob("*")]:
 for profile in (home / "profiles").glob("u-*"):
     if not profile.is_dir() or profile.is_symlink():
         continue
+    profile_persona = profile / "SOUL.md"
+    if profile_persona.is_symlink():
+        raise RuntimeError("User profile persona is a symlink")
+    if profile_persona.is_file() and prior_managed_persona is not None and profile_persona.read_bytes() == prior_managed_persona:
+        backup_persona = profile / "SOUL.md.before-ayla-context"
+        if backup_persona.is_symlink():
+            raise RuntimeError("User profile persona backup is a symlink")
+        if not backup_persona.exists():
+            shutil.copyfile(profile_persona, backup_persona)
+        shutil.copyfile(persona, profile_persona)
+        os.chown(profile_persona, hermes_user.pw_uid, hermes_user.pw_gid)
     # Calendar tools join the managed ayla_finance bundle already enabled here;
     # do not rewrite user config or require YAML dependencies in the PM bootstrap.
-    for plugin_id in ("ayla-finance",):
+    for plugin_id in ("ayla-finance", "ayla-provider-monitor"):
         if (profile / "plugins").is_symlink():
             raise RuntimeError("User profile plugin root contains a symlink")
         target = profile / "plugins" / plugin_id
@@ -122,12 +140,34 @@ for profile in (home / "profiles").glob("u-*"):
         os.chown(target, hermes_user.pw_uid, hermes_user.pw_gid)
 
 dependency_env = dict(os.environ, HOME=str(home))
+# The authenticated dashboard quota route is independent of each profile's inference process.
+for quota_home in [home, template, *(home / "profiles").glob("u-*")]:
+    if not quota_home.is_dir():
+        continue
+    quota_target = quota_home / "plugins" / "ayla-finance" / "dashboard"
+    if quota_home.is_symlink() or quota_target.is_symlink() or (quota_target.parent).is_symlink():
+        raise RuntimeError("Unsafe Ayla dashboard plugin path")
+    quota_target.mkdir(parents=True, exist_ok=True)
+    for quota_filename in ("manifest.json", "api.py", "session_state.py"):
+        quota_file = quota_target / quota_filename
+        if quota_file.is_symlink():
+            raise RuntimeError("Unsafe Ayla dashboard plugin file")
+        shutil.copyfile(Path("/opt/ayla/plugins/ayla-finance/dashboard") / quota_filename, quota_file)
+        os.chown(quota_file, hermes_user.pw_uid, hermes_user.pw_gid)
+    os.chown(quota_target, hermes_user.pw_uid, hermes_user.pw_gid)
+subprocess.run(["/opt/hermes/.venv/bin/python", "/opt/ayla/plugins/ayla-finance/configure.py", str(home)],
+               cwd="/opt/hermes", env=dependency_env, check=True, timeout=30)
 # Must run before any gateway/PM process can import Nous authentication.
 subprocess.run(["/opt/hermes/.venv/bin/python", "/opt/ayla/prepare_auth.py"],
                cwd="/opt/hermes", env=dependency_env, check=True, timeout=30)
 # The official image pins Edge 7.2.7; upstream 7.3.1 fixes the current service handshake.
-subprocess.run(["/opt/hermes/.venv/bin/python", "/opt/ayla/prepare_voice.py"],
-               cwd="/opt/hermes", env=dependency_env, check=True, timeout=180)
+try:
+    subprocess.run(["/opt/hermes/.venv/bin/python", "/opt/ayla/prepare_voice.py"],
+                   cwd="/opt/hermes", env=dependency_env, check=True, timeout=120)
+except (subprocess.SubprocessError, OSError) as error:
+    # Optional speech preparation must not keep the dashboard and OAuth offline.
+    # Authentication isolation above remains mandatory and fails startup on error.
+    print("[ayla] Voice preparation failed: " + type(error).__name__ + ". Starting dashboard/chat with the installed voice dependencies.", flush=True)
 try:
     subprocess.run(["/command/s6-setuidgid", "hermes", "/opt/hermes/.venv/bin/python", "-c",
                     "import pm; pm.sync_venv(['ddgs', 'stt-whisper', 'edge-tts'], explicit=True)"],

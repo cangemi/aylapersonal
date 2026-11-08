@@ -17,7 +17,9 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 /** Creates and checks the caller's own Hermes profile without leaving the application. */
 @Service
 public class HermesAccountService {
-    public record Status(boolean provisioned, boolean connected, boolean loggedIn, boolean ready, String message) {}
+    public record Status(boolean provisioned, boolean connected, boolean loggedIn, boolean ready, String message,boolean authAvailable) {
+        public Status(boolean provisioned,boolean connected,boolean loggedIn,boolean ready,String message){this(provisioned,connected,loggedIn,ready,message,connected);}
+    }
     private final JdbcTemplate jdbc;
     private final ChatUserRepository users;
     private final ChatIdentity identity;
@@ -56,34 +58,28 @@ public class HermesAccountService {
                 "description", "Perfil da Ayla do usuário"));
         dashboard.admin("PUT", "/api/env?profile=" + name, Map.of("key", "API_SERVER_KEY", "value", key, "profile", name));
         jdbc.update("update chat_users set hermes_profile=?, hermes_api_key=? where user_id=?", name, key, userId);
-        if (!reachable(name)) {
-            dashboard.admin("POST", "/api/gateway/restart", null);
-            for (int i = 0; i < 30 && !reachable(name); i++) pause();
-        }
+        // OAuth uses the dashboard, independently of the profile's inference process.
+        // Never restart all users' gateways or hold login waiting for chat health.
         return name;
-    }
-
-    private boolean reachable(String profile) {
-        try { client.get(profile, "/health"); return true; } catch (HermesException e) { return false; }
-    }
-    private void pause() {
-        try { Thread.sleep(2000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
     }
 
     public Status status(String userId) {
         var profile = profile(userId);
         if (profile == null || profile.isBlank())
             return new Status(false, false, false, false, "Seu perfil Hermes ainda não foi criado.");
-        if (!reachable(profile))
-            return new Status(true, false, false, false, "O Hermes ainda está iniciando seu perfil. Tente novamente em instantes.");
-        boolean logged = loggedIn(profile);
-        if (!logged) return new Status(true, true, false, false, "Entre na sua conta Nous para liberar o Hermes. Cada usuário usa a própria conta.");
-        try {
-            models.select(null, profile);
-            return new Status(true, true, true, true, "Hermes pronto.");
-        } catch (HermesException e) {
-            return new Status(true, true, true, false, e.getMessage());
+        boolean logged=false,authAvailable=false;
+        try{logged=loggedIn(profile);authAvailable=true;}catch(HermesException unavailable){/* Report the two services separately. */}
+        try{client.get(profile,"/health");}
+        catch(HermesException failure){
+            return new Status(true,false,logged,false,authAvailable
+                ?"O servidor de conversas deste perfil está indisponível. Você pode conectar ou trocar sua conta Nous abaixo. Detalhe: "+failure.getMessage()
+                :"Não foi possível acessar o servidor de conversas nem o painel de autorização do Hermes. Verifique os serviços e as credenciais da integração.",authAvailable);
         }
+        if(!authAvailable)return new Status(true,true,false,false,"O servidor de conversas responde, mas o painel de autorização está indisponível. Tente conectar para verificar o erro.",false);
+        if (!logged) return new Status(true, true, false, false, "Entre na sua conta Nous para liberar o Hermes. Cada usuário usa a própria conta.",true);
+        // Account controls must not wait on the model/pricing catalogue. Chat still validates
+        // the requested model and its free eligibility before every inference.
+        return new Status(true,true,true,true,"Conta Nous autorizada e servidor de conversas conectado. A disponibilidade do modelo é verificada ao conversar.",true);
     }
 
     private Map<?, ?> nousStatus(String profile) {
@@ -93,25 +89,33 @@ public class HermesAccountService {
             if (item instanceof Map<?, ?> row && "nous".equals(row.get("id")) && row.get("status") instanceof Map<?, ?> st) return st;
         return Map.of();
     }
-    /** A profile without its own login silently falls back to the administrator's token; that does not count. */
+    /** Legacy profiles may contain copied credentials. Require an OAuth flow issued to this profile. */
     private boolean loggedIn(String profile) {
-        var own = nousStatus(profile);
-        if (!Boolean.TRUE.equals(own.get("logged_in")) || "default".equals(profile)) return Boolean.TRUE.equals(own.get("logged_in"));
-        var inherited = nousStatus("default");
-        return own.get("token_preview") != null && !own.get("token_preview").equals(inherited.get("token_preview"));
+        if (!"default".equals(profile) && !Boolean.TRUE.equals(jdbc.queryForObject("""
+                select exists(select 1 from hermes_oauth_sessions s join chat_users u on u.user_id=s.user_id
+                where s.profile=? and u.hermes_profile=s.profile and s.completed_at is not null)
+                """, Boolean.class, profile))) return false;
+        return Boolean.TRUE.equals(nousStatus(profile).get("logged_in"));
     }
     private String query(String profile) { return "default".equals(profile) ? "" : "?profile=" + profile; }
 
     public Map<String, Object> startLogin(String userId) {
-        var profile = provision(userId);
+        return cluster==null?startLoginLocked(userId):cluster.exclusive("profile:"+userId,()->startLoginLocked(userId));
+    }
+    private Map<String,Object> startLoginLocked(String userId){
+        var profile = provisionLocked(userId);
+        var previous=jdbc.queryForList("select session_id from hermes_oauth_sessions where user_id=? and profile=? and expires_at>now()",String.class,userId,profile);
+        for(var session:previous)if(session.matches("[A-Za-z0-9_-]{8,128}"))
+            dashboard.admin("DELETE","/api/providers/oauth/sessions/"+session+query(profile),null);
         var result=dashboard.admin("POST", "/api/providers/oauth/nous/start" + query(profile), null);
         if(!(result.get("session_id") instanceof String session)||!session.matches("[A-Za-z0-9_-]{8,128}"))throw new HermesException(502,"O Hermes não retornou uma sessão de login válida.");
         jdbc.update("""
                 insert into hermes_oauth_sessions(user_id,session_id,profile,expires_at) values (?,?,?,now()+interval '15 minutes')
-                on conflict(user_id) do update set session_id=excluded.session_id,profile=excluded.profile,expires_at=excluded.expires_at
+                on conflict(user_id) do update set session_id=excluded.session_id,profile=excluded.profile,expires_at=excluded.expires_at,completed_at=null
                 """,userId,session,profile);
         return result;
     }
+    @org.springframework.transaction.annotation.Transactional
     public Map<String, Object> pollLogin(String userId, String session) {
         if (!session.matches("[A-Za-z0-9_-]{8,128}")) throw new HermesException(400, "Sessão de login inválida.");
         var issued=jdbc.queryForList("select profile from hermes_oauth_sessions where user_id=? and session_id=? and expires_at>now()",String.class,userId,session);
@@ -119,13 +123,24 @@ public class HermesAccountService {
         var profile = profile(userId);
         if (profile == null) throw new HermesException(409, "Inicie o login primeiro.");
         if(!profile.equals(issued.getFirst()))throw new HermesException(403,"O perfil da sessão de login foi alterado.");
-        return dashboard.admin("GET", "/api/providers/oauth/nous/poll/" + session + query(profile), null);
+        var result=dashboard.admin("GET", "/api/providers/oauth/nous/poll/" + session + query(profile), null);
+        if("approved".equals(result.get("status"))&&!Boolean.TRUE.equals(nousStatus(profile).get("logged_in")))
+            throw new HermesException(409,"A autorização não foi salva no seu perfil Hermes. Conecte novamente sua própria conta Nous.");
+        if("approved".equals(result.get("status"))&&jdbc.update("update hermes_oauth_sessions set completed_at=now() where user_id=? and session_id=? and completed_at is null",userId,session)==1){
+            // Keep an observation barrier so late events from the old account cannot restore its quota.
+            // Only this user's pointer changes; shared quotas, sessions and history remain intact.
+            jdbc.update("update provider_connections set credential_scope=?,credential_observed_at=now(),last_model=null where user_id=? and profile=? and provider='nous'",
+                ayla.auth.AuthService.hash("pending-nous-account:"+session),userId,profile);
+            models.invalidate(profile);
+        }
+        return result;
     }
+    public boolean loggedInForUsage(String userId){String profile=profile(userId);return profile!=null&&loggedIn(profile);}
 
     public boolean ready(String userId) { return status(userId).ready(); }
     public void requireOwnLogin(String userId) {
         String profile=scope.profile(userId,true);
-        if(!scope.owner(userId)&&!loggedIn(profile))throw new HermesException(409,"Conecte sua própria conta Hermes para conversar.");
+        if(!loggedIn(profile))throw new HermesException(409,"Conecte sua própria conta Hermes para conversar.");
     }
 
     public void delete(String userId) {

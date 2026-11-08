@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { api } from '../lib/api'
 import Icon from './Icon.vue'
 import ExternalLink from './ExternalLink.vue'
+import ProviderUsagePanel from './ProviderUsagePanel.vue'
 
 const props = defineProps({ onboarding: Boolean, management: Boolean })
 const emit = defineEmits(['status', 'busy'])
@@ -12,10 +13,13 @@ const status = ref(null),
   error = ref(''),
   login = ref(null),
   loginState = ref(''),
+  usageVersion = ref(0),
+  authorizedEmail = ref(''),
   remaining = ref(0)
 let disposed = false,
   pollTimer,
   clockTimer,
+  connectionTimer,
   expiresAt = 0,
   polling = false
 const pending = computed(() => login.value && loginState.value === 'pending')
@@ -26,7 +30,7 @@ const connectionLabel = computed(() =>
   pending.value
     ? 'Autorização em andamento'
     : status.value?.ready
-      ? 'Pronto para conversar'
+      ? 'Conta autorizada'
       : status.value?.loggedIn
         ? 'Conta conectada'
         : 'Aguardando conexão',
@@ -67,7 +71,16 @@ async function run(action) {
     busy.value = false
     loading.value = false
     if (!disposed) emit('busy', false)
+    scheduleConnectionCheck()
   }
+}
+function scheduleConnectionCheck() {
+  clearTimeout(connectionTimer)
+  if (!disposed && !pending.value && status.value?.provisioned && !status.value.connected)
+    connectionTimer = setTimeout(() => {
+      if (document.visibilityState === 'visible') refresh()
+      else scheduleConnectionCheck()
+    }, 10000)
 }
 const refresh = () => run(() => readStatus(props.onboarding))
 function expire() {
@@ -88,24 +101,35 @@ async function pollLogin() {
   try {
     const result = await api('/me/hermes/login/' + encodeURIComponent(sessionId))
     if (disposed || sessionId !== login.value?.session_id) return
-    if (['denied', 'expired', 'error'].includes(result.status)) {
+    error.value = ''
+    if (['denied', 'expired', 'error', 'cancelled'].includes(result.status)) {
       stopPolling()
       loginState.value = result.status
       error.value =
-        result.status === 'denied'
-          ? 'A autorização foi recusada na Nous. Reinicie a autorização quando quiser conectar sua conta.'
-          : result.status === 'expired'
-            ? 'O link de autorização expirou. Reinicie a autorização para tentar novamente.'
-            : 'A Nous não concluiu a autorização. Reinicie a autorização para tentar novamente.'
+        result.status === 'cancelled'
+          ? 'A autorização foi cancelada. Você pode iniciar outra solicitação.'
+          : result.status === 'denied'
+            ? 'A autorização foi recusada na Nous. Reinicie a autorização quando quiser conectar sua conta.'
+            : result.status === 'expired'
+              ? 'O link de autorização expirou. Reinicie a autorização para tentar novamente.'
+              : 'A Nous não concluiu a autorização. Reinicie a autorização para tentar novamente.'
       return
     }
     if (result.status === 'approved') {
       stopPolling()
       loginState.value = 'approved'
       login.value = null
+      authorizedEmail.value = typeof result.account_email === 'string' ? result.account_email : ''
+      usageVersion.value++
+      await readStatus()
+      scheduleConnectionCheck()
     }
-    await readStatus()
   } catch (e) {
+    if (!disposed && pending.value && [0, 502, 503, 504].includes(e.status)) {
+      error.value =
+        'A consulta da autorização falhou temporariamente. Vou tentar novamente enquanto o link estiver válido.'
+      return
+    }
     if (
       !disposed &&
       (login.value?.session_id === sessionId || (!login.value && loginState.value === 'approved'))
@@ -122,10 +146,10 @@ async function pollLogin() {
 const startLogin = () =>
   run(async () => {
     stopPolling()
+    clearTimeout(connectionTimer)
     login.value = null
     loginState.value = ''
-    await readStatus(true)
-    if (disposed || !status.value?.connected) return
+    // OAuth uses the dashboard. A stopped/unauthenticated chat API must not lock this button.
     const result = await api('/me/hermes/login', { method: 'POST' })
     if (disposed) return
     if (!result.session_id || !result.verification_url || !result.user_code)
@@ -157,6 +181,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   disposed = true
   stopPolling()
+  clearTimeout(connectionTimer)
   document.removeEventListener('visibilitychange', visibilityChanged)
 })
 </script>
@@ -176,6 +201,8 @@ onBeforeUnmount(() => {
         <p class="muted">
           O Hermes prepara as respostas da Ayla. Para ativá-lo, você autoriza o acesso à sua própria
           conta Nous. Essa autorização acontece no site da Nous, em uma nova aba.
+          O consumo de tokens e os limites ficam na conta que você autorizar. Use uma conta pessoal
+          para manter seu consumo separado do de outros usuários.
         </p>
       </div>
       <span v-if="status" :class="['tag', status.ready && !pending ? 'green' : '']">{{
@@ -186,8 +213,13 @@ onBeforeUnmount(() => {
       <Icon name="loading" :size="18" />Preparando sua conexão com o Hermes…
     </p>
     <div v-if="error" class="banner error" role="alert">{{ error }}</div>
+    <p v-if="authorizedEmail && !pending" class="banner success" role="status">
+      Conta autorizada na Nous: {{ authorizedEmail }}.
+    </p>
     <p v-if="status?.ready && !pending" class="banner success" role="status">
-      Tudo certo! Sua conta Nous já está autorizada e a Ayla está pronta para conversar.
+      Sua conta Nous está autorizada para o seu perfil. Os tokens são consumidos nessa conta.
+      Consulte abaixo a disponibilidade do modelo e as cotas
+      informadas.
     </p>
     <p v-else-if="status?.loggedIn && !pending" class="banner info" role="status">
       Sua conta Nous está conectada. {{ status.message }}
@@ -198,10 +230,10 @@ onBeforeUnmount(() => {
 
     <div class="button-row">
       <button
-        v-if="pending || (!status?.ready && !status?.loggedIn)"
+        v-if="pending || !status?.loggedIn"
         type="button"
         class="button primary"
-        :disabled="busy || loading || !status || (status.provisioned && !status.connected)"
+        :disabled="busy || loading"
         @click="startLogin"
       >
         <Icon :name="busy ? 'loading' : 'shield'" :size="17" />{{
@@ -212,21 +244,26 @@ onBeforeUnmount(() => {
         <Icon :name="busy ? 'loading' : 'refresh'" :size="17" />Verificar conexão
       </button>
       <button
-        v-if="management && status?.loggedIn && !pending"
+        v-if="status?.loggedIn && !pending"
         type="button"
         class="button subtle"
         :disabled="busy"
         @click="startLogin"
       >
-        Autorizar conta Nous novamente
+        Trocar conta Nous
       </button>
     </div>
-    <template v-if="pending || (!status?.ready && !status?.loggedIn)">
+    <template v-if="pending || !status?.loggedIn">
       <div v-if="pending" class="hermes-authorization">
         <span class="eyebrow">CÓDIGO PARA CONFERÊNCIA</span>
         <strong class="hermes-user-code">{{ login.user_code }}</strong>
         <p>
           Confira se este mesmo código aparece na página da Nous. Não é um campo para preencher.
+        </p>
+        <p v-if="management">
+          Para trocar de conta, entre na conta desejada na Nous antes de autorizar. Se o portal
+          escolher automaticamente a conta atual, abra o link em uma janela privada ou saia dela no
+          portal. A troca só é confirmada após a autorização.
         </p>
         <ExternalLink class="button primary" :href="login.verification_url"
           >Abrir a Nous e autorizar</ExternalLink
@@ -276,8 +313,8 @@ onBeforeUnmount(() => {
               Depois de autorizar, volte a esta aba. A conexão será reconhecida automaticamente.
               {{
                 onboarding
-                  ? 'Quando aparecer “Pronto para conversar”, clique em “Concluir”.'
-                  : 'Aguarde aparecer “Pronto para conversar”.'
+                  ? 'Quando aparecer “Conta autorizada”, clique em “Concluir”.'
+                  : 'Aguarde aparecer “Conta autorizada”.'
               }}
             </p>
           </div>
@@ -288,6 +325,7 @@ onBeforeUnmount(() => {
     <p v-if="!loading && status && !status.provisioned" class="footnote">
       Ao conectar, a Ayla prepara seu espaço no Hermes antes de abrir a autorização da Nous.
     </p>
+    <ProviderUsagePanel v-if="management && status?.provisioned && !pending" :key="usageVersion" />
     <div v-if="management" class="hermes-management">
       <section class="hermes-management-card">
         <Icon name="wallet" :size="22" />

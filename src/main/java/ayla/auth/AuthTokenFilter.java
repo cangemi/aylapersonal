@@ -34,7 +34,7 @@ public class AuthTokenFilter extends OncePerRequestFilter {
                 String token=authorization.substring(7),role;Object identity;
                 if(path(request).startsWith("/internal/hermes/")) {
                     if(!matches(hermesKey,token))throw new AuthException(401,"Integração não autorizada.");
-                    auth.requireActiveAgentSession(request.getHeader("X-Ayla-Session"));
+                    if(!path(request).equals("/internal/hermes/provider-events"))auth.requireActiveAgentSession(request.getHeader("X-Ayla-Session"));
                     identity="hermes-internal";role="HERMES";
                 } else if((request.getHeader("X-Ayla-WhatsApp-Chat")!=null
                         && ((request.getMethod().equals("POST")&&path(request).equals("/api/v1/chat"))

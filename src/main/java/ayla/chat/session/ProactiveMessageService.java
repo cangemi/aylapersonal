@@ -18,6 +18,12 @@ public class ProactiveMessageService {
 
     public java.util.Optional<UUID> currentConversation(String user) {
         try {
+            List<UUID> primary = jdbc.query("""
+                select c.conversation_id from whatsapp_chats c join whatsapp_instances i on i.id=c.instance_id
+                where i.owner_user_id=? and i.connection_role='user' and c.enabled and not c.mention_only
+                and c.conversation_id is not null order by c.updated_at desc limit 1
+                """, (r, n) -> r.getObject("conversation_id", UUID.class), user);
+            if (!primary.isEmpty()) return Optional.of(primary.getFirst());
             List<UUID> ids = jdbc.query("select current_conversation_id from chat_users where user_id=?", (r, n) -> r.getObject("current_conversation_id", UUID.class), user);
             if (!ids.isEmpty() && ids.get(0) != null) return Optional.of(ids.get(0));
             List<UUID> fallback = jdbc.query("select id from chat_conversations where user_id=? order by created_at desc limit 1",
@@ -29,13 +35,13 @@ public class ProactiveMessageService {
     }
 
     public void record(String user, UUID conversation, String text, String source, UUID sourceId) {
-        if (user == null || conversation == null || text == null || text.isBlank()) return;
+        if (user == null || text == null || text.isBlank()) return;
         UUID id = UUID.randomUUID();
         try {
-            int inserted = jdbc.update("insert into proactive_messages(id,user_id,conversation_id,role,text,source,source_id,created_at) values (?,?,?,?,?,?,?,?)",
+            int inserted = jdbc.update("insert into proactive_messages(id,user_id,conversation_id,role,text,source,source_id,created_at) values (?,?,?,?,?,?,?,?) on conflict do nothing",
                     id, user, conversation, "assistant", text, source, sourceId, Timestamp.from(Instant.now()));
-            if (inserted > 0 && push != null && "alarm".equals(source)) {
-                String eventId = "alarm:" + (sourceId == null ? id : sourceId) + ":" + id;
+            if (inserted > 0 && push != null && Set.of("alarm-notification", "calendar-reminder").contains(source)) {
+                String eventId = ("alarm-notification".equals(source) ? "alarm:" : "calendar:") + (sourceId == null ? id : sourceId);
                 push.notifyAsync(user, conversation, text, eventId);
             }
         } catch (RuntimeException ignored) {
@@ -44,23 +50,33 @@ public class ProactiveMessageService {
     }
 
     public List<ConversationHistory.Message> listByUser(String user, UUID conversationId, int limit) {
+        var messages = listSince(user, conversationId, null);
+        return messages.subList(Math.max(0, messages.size() - Math.max(0, limit)), messages.size());
+    }
+
+    public List<ConversationHistory.Message> listSince(String user, UUID conversationId, Instant since) {
         List<ConversationHistory.Message> result = new ArrayList<>();
-        if (user == null || limit < 1) return result;
-        if (limit > 20) limit = 20;
+        if (user == null) return result;
         try {
-            String sql = "select id,text from proactive_messages where user_id=?";
+            String sql = "select p.*,j.provider_notice_json,(j.status='FAILED' and j.dispatched_at is null and j.request_json is not null and j.source='WEB') as retryable from proactive_messages p left join chat_jobs j on p.source='chat-job-notice' and j.id=p.source_id and j.user_id=p.user_id where p.user_id=?";
             List<Object> args = new ArrayList<>();
             args.add(user);
             if (conversationId != null) {
-                sql += " and (conversation_id is null or conversation_id=?)";
+                sql += " and p.conversation_id=?";
                 args.add(conversationId);
             }
-            sql += " order by created_at asc limit ?";
-            args.add(limit);
+            if (since != null) {
+                sql += " and p.created_at>=?";
+                args.add(Timestamp.from(since));
+            }
+            sql += " order by p.created_at asc,p.id";
             jdbc.query(sql,
                     (r, n) -> {
+                        Map<String,Object> meta=null;
+                        if(r.getString("provider_notice_json") instanceof String raw){meta=new LinkedHashMap<>(tools.jackson.databind.json.JsonMapper.builder().build().readValue(raw,Map.class));meta.put("serverNow",Instant.now());}
                         result.add(new ConversationHistory.Message("proactive:" + r.getObject("id", UUID.class),
-                                "assistant", r.getString("text"), List.of()));
+                                r.getString("role"), r.getString("text"), List.of(), r.getTimestamp("created_at").toInstant(),
+                                "chat-job-notice".equals(r.getString("source"))?r.getObject("source_id",UUID.class):null,meta,r.getBoolean("retryable")));
                         return null;
                     }, args.toArray());
         } catch (RuntimeException ignored) {

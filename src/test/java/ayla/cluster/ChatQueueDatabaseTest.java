@@ -21,7 +21,9 @@ class ChatQueueDatabaseTest {
     @BeforeEach void setup() throws Exception {
         var source=new DriverManagerDataSource(database.getJdbcUrl(),database.getUsername(),database.getPassword());
         jdbc=new JdbcTemplate(source);
-        jdbc.execute("drop table if exists chat_jobs,chat_conversations,auth_accounts cascade");
+        jdbc.execute("drop table if exists proactive_messages,chat_jobs,chat_conversations,auth_accounts cascade");
+        jdbc.execute("create table proactive_messages(id uuid primary key,user_id varchar(255),conversation_id uuid,role varchar(16),text text,source varchar(40),source_id uuid,created_at timestamptz)");
+        jdbc.execute("create unique index proactive_chat_job_notice on proactive_messages(source_id) where source='chat-job-notice'");
         jdbc.execute("create table auth_accounts(user_id varchar(255) primary key,enabled boolean default true)");
         jdbc.execute("create table chat_conversations(id uuid primary key)");
         jdbc.execute("insert into auth_accounts(user_id) values ('alice'),('bob')");
@@ -31,6 +33,7 @@ class ChatQueueDatabaseTest {
             jdbc.execute(new String(Objects.requireNonNull(file).readAllBytes(),StandardCharsets.UTF_8));
         }
         var transactions=new DataSourceTransactionManager(source);
+        jdbc.execute("alter table chat_jobs add column provider_notice_json text");
         one=new ChatQueueStore(jdbc,transactions);two=new ChatQueueStore(jdbc,transactions);
     }
     UUID add(UUID conversation,String key){return one.insert("alice",conversation,key,"a".repeat(64),"WEB",null,new ChatRequest("Oi",null,conversation.toString()));}
@@ -58,6 +61,22 @@ class ChatQueueDatabaseTest {
         assertThatThrownBy(()->two.get("bob",first,null)).isInstanceOf(ayla.hermes.HermesException.class);
         assertThat(jdbc.queryForObject("select request_json is null from chat_jobs where id=?",Boolean.class,first)).isTrue();
     }
+    @Test void providerRetryReusesOnlyARequestThatWasNeverSentAndPersistsItsNotice(){
+        UUID id=add(conversationA,"limited");
+        var limited=new ayla.hermes.ProviderUsageData.Limited("Modelo limitado",Map.of("status","RATE_LIMITED","model","model-one","serverNow",java.time.Instant.now()));
+        one.limitedBeforeDispatch("alice",id,limited);
+        assertThat(two.get("alice",id,null).retryable()).isTrue();
+        assertThat(two.get("alice",id,null).availability()).containsEntry("model","model-one");
+        assertThat(jdbc.queryForObject("select count(*) from proactive_messages where source_id=?",Integer.class,id)).isEqualTo(2);
+        two.retry("alice",id);
+        assertThat(two.get("alice",id,null).status()).isEqualTo("QUEUED");
+        var work=one.claim();assertThat(work.id()).isEqualTo(id);
+        one.dispatched(work);one.providerNotice(work,limited.availability());
+        one.finish(work,"NEEDS_REVIEW",null,"Modelo limitado");
+        assertThat(two.get("alice",id,null).retryable()).isFalse();
+        assertThatThrownBy(()->two.retry("alice",id)).isInstanceOf(ayla.hermes.HermesException.class);
+        assertThat(jdbc.queryForObject("select count(*) from proactive_messages where source='chat-job-input' and source_id=?",Integer.class,id)).isZero();
+    }
     @Test void restartRecoversOnlyUndispatchedWorkAndNeverReplaysAnUncertainMutation(){
         UUID safe=add(conversationA,"safe"),uncertain=add(conversationB,"uncertain");
         var safeWork=one.claim();var uncertainWork=one.claim();
@@ -66,6 +85,8 @@ class ChatQueueDatabaseTest {
         two.recover();
         assertThat(two.get("alice",safe,null).status()).isEqualTo("QUEUED");
         assertThat(two.get("alice",uncertain,null).status()).isEqualTo("NEEDS_REVIEW");
+        two.recover();
+        assertThat(jdbc.queryForObject("select count(*) from proactive_messages where source='chat-job-notice' and source_id=?",Integer.class,uncertain)).isEqualTo(1);
         assertThat(two.claim().id()).isEqualTo(safe);
         assertThat(two.claim()).isNull();
         assertThatThrownBy(()->one.dispatched(safeWork)).isInstanceOf(ayla.hermes.HermesException.class);

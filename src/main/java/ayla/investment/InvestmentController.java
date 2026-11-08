@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/v1/investments")
-@Tag(name = "Investimentos", description = "Caixinha Nubank: saldo, rendimento pelo CDI do Banco Central e simulações. Aportes e resgates são lançamentos financeiros da categoria Investimento (despesa = aporte, receita = resgate). Valores em centavos.")
+@Tag(name = "Investimentos", description = "Carteira de aplicações de qualquer instituição, com saldos informados ou rendimento estimado. O cadastro anterior da caixinha e seu simulador permanecem disponíveis. Valores em centavos.")
 public class InvestmentController {
     private final InvestmentService service;
     private final ChatIdentity identity;

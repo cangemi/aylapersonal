@@ -220,7 +220,9 @@ const timeline = computed(() => {
         },
     ...call.ai_calls.map((item, index) => ({
       key: 'ai-' + index,
-      label: item.purpose === 'VISION' ? 'Analisou a imagem com a IA' : 'Respondeu com a IA',
+      label: item.status >= 400
+        ? 'Falha na chamada ao Hermes'
+        : item.purpose === 'VISION' ? 'Resposta de imagem recebida do Hermes' : 'Resposta recebida do Hermes',
       at: item.occurred_at,
       detail: `${item.model || 'Modelo não informado'} · entrada ${tokens(item.input_tokens)} · saída ${tokens(item.output_tokens)} · total ${tokens(item.total_tokens)} tokens · ${number(item.duration_ms)} ms`,
       error: item.status >= 400,
@@ -644,14 +646,16 @@ onBeforeUnmount(() => {
         <span class="tag">{{ journey.user_name }}</span>
         <span class="tag"
           >{{ journey.duration_ms == null ? 'Em andamento' : number(journey.duration_ms) + ' ms' }} ·
-          {{ number(journey.ai_calls.length) }} chamadas à IA ·
-          {{ number(journey.ai_calls.reduce((sum, call) => sum + Number(call.total_tokens || 0), 0)) }}
-          tokens</span
+          {{ number(journey.ai_calls.length) }} chamadas ao Hermes ·
+          {{ journey.ai_calls.every(call => call.total_tokens != null)
+              ? number(journey.ai_calls.reduce((sum, call) => sum + Number(call.total_tokens), 0)) + ' tokens informados'
+              : 'total de tokens não informado' }}</span
         >
       </div>
       <p class="muted">
-        O que acontece em uma chamada da Ayla: a mensagem entra, espera a fila, vai para o modelo e
-        a resposta volta para quem pediu. Nenhuma mensagem é exibida aqui.
+        A mensagem entra na fila e é enviada ao Hermes, que pode consultar o modelo e executar
+        ferramentas. Uma falha de comunicação não comprova execução da IA nem consumo zero.
+        Nenhuma mensagem é exibida aqui.
       </p>
       <ol class="monitor-timeline">
         <li v-for="step in timeline" :key="step.key" :class="{ error: step.error }">

@@ -32,10 +32,7 @@ public class AlarmService {
     public AlarmService(JdbcTemplate jdbc) { this.jdbc = jdbc; }
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setProactive(ayla.chat.session.ProactiveMessageService proactive) { this.proactive = proactive; }
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
-    public void setPush(ayla.push.PushService push) { this.push = push; }
     ayla.chat.session.ProactiveMessageService proactive;
-    ayla.push.PushService push;
 
     public List<Alarm> list(String user) {
         return jdbc.query("select * from alarms where user_id=? order by active desc, created_at desc", ROW, user);
@@ -259,7 +256,7 @@ public class AlarmService {
             String title = String.valueOf(row.get("title"));
             boolean confirm = Boolean.TRUE.equals(row.get("confirm_needed"));
             String text = "⏰ Alarme: " + title + (confirm ? "\nResponda \"ok\" para parar os lembretes a cada 5 minutos." : "");
-            if (proactive != null) proactive.record(user, proactive.currentConversation(user).orElse(null), text, "alarm", alarmId);
+            if (proactive != null) proactive.record(user, proactive.currentConversation(user).orElse(null), text, "alarm-notification", notificationId);
         } catch (RuntimeException ignored) {
         }
     }

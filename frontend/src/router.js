@@ -41,7 +41,7 @@ const routes = [
   {
     path: '/investimentos',
     component: () => import('./pages/Investments.vue'),
-    meta: { title: 'Investimentos', subtitle: 'Sua caixinha rendendo com o CDI.' },
+    meta: { title: 'Investimentos', subtitle: 'Sua carteira, em qualquer banco ou corretora.' },
   },
   {
     path: '/financeiro',
