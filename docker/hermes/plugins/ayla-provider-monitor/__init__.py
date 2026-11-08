@@ -298,7 +298,7 @@ def quota_period(label):
     return 'SUBSCRIPTION' if 'subscription' in text else 'UNKNOWN'
 
 
-def normalize_quotas(snapshot):
+def normalize_quotas(snapshot, account=None):
     quotas = []
     if snapshot is None or getattr(snapshot, 'unavailable_reason', None):
         return quotas
@@ -308,8 +308,18 @@ def normalize_quotas(snapshot):
         if isinstance(value, bool) or not isinstance(value, (float, int)) or not math.isfinite(value) or not 0 <= value <= 100 or not isinstance(label, str):
             continue
         reset = getattr(window, 'reset_at', None)
+        if label == 'Subscription' and reset is None:
+            renewal = getattr(getattr(account, 'subscription', None), 'current_period_end', None)
+            if isinstance(renewal, str):
+                try:
+                    parsed = datetime.fromisoformat(renewal.replace('Z', '+00:00'))
+                    if parsed.tzinfo is not None:
+                        reset = parsed
+                except ValueError:
+                    pass
         family = any(word in label.casefold() for word in ('large', 'top-tier', 'opus', 'sonnet'))
-        quotas.append({'label': label[:100], 'period': quota_period(label), 'usagePercentage': value,
+        display_label = 'Créditos da assinatura (US$)' if label == 'Subscription' else label[:100]
+        quotas.append({'label': display_label, 'period': quota_period(label), 'usagePercentage': value,
                        'used': None, 'limit': None, 'remaining': None,
                        'resetsAt': reset.isoformat() if isinstance(reset, datetime) and reset.tzinfo is not None else None,
                        'scope': 'MODEL_FAMILY' if family else 'MODEL' if getattr(window, 'scope', '') == 'model' else 'ACCOUNT', 'model': None})
@@ -336,7 +346,7 @@ def query_quota():
             # Do not label a previous account's quota as the newly connected account.
             return {**refreshed, 'state': 'QUOTA', 'quotas': [], 'quotaStatus': 'ERROR'}
         context = refreshed
-        quotas = normalize_quotas(build_nous_credits_snapshot(account))
+        quotas = normalize_quotas(build_nous_credits_snapshot(account), account)
         return {**context, 'state': 'QUOTA', 'quotas': quotas, 'quotaStatus': 'KNOWN' if quotas else 'UNAVAILABLE'}
     except Exception:
         return {**context, 'state': 'QUOTA', 'quotas': [], 'quotaStatus': 'ERROR'}

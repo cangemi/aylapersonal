@@ -33,20 +33,42 @@ public class ProviderUsageService {
         // Automatic mode selects another free model before dispatch; last_model is only telemetry.
         if(profile!=null){String configured=settings.get(user).getModel();if(configured!=null&&!configured.isBlank())availability.check(profile,configured);}
     }
-    public Map<String,Object> view(String user){
+    public record UsageWindow(String period,Instant from,Instant to,String timeZone,String label){}
+    static UsageWindow usageWindow(String period,Instant now){
+        var zone=java.time.ZoneId.of("America/Sao_Paulo");var local=now.atZone(zone);
+        return switch(Objects.toString(period,"24H").toUpperCase(Locale.ROOT)){
+            case "DAY" -> new UsageWindow("DAY",local.toLocalDate().atStartOfDay(zone).toInstant(),now,zone.getId(),"Hoje, no horário de Brasília");
+            case "24H" -> new UsageWindow("24H",now.minus(java.time.Duration.ofHours(24)),now,zone.getId(),"Últimas 24 horas");
+            case "7D" -> new UsageWindow("7D",now.minus(java.time.Duration.ofDays(7)),now,zone.getId(),"Últimos 7 dias");
+            case "MONTH" -> new UsageWindow("MONTH",local.toLocalDate().withDayOfMonth(1).atStartOfDay(zone).toInstant(),now,zone.getId(),"Mês atual, no horário de Brasília");
+            default -> throw new HermesException(400,"Período de consumo inválido.");
+        };
+    }
+    public Map<String,Object> view(String user){return view(user,"24H");}
+    public Map<String,Object> view(String user,String period){
         long started=System.nanoTime();
+        var window=usageWindow(period,Instant.now());
         String profile=scope.profile(user,false);
         var result=new LinkedHashMap<String,Object>();
         result.put("serverNow",Instant.now());result.put("provider","nous");
         result.put("automaticFallback",false);result.put("quotaSource","API oficial Nous, consultada pelo perfil Hermes; sem scraping");
         result.put("quotaStatus","UNAVAILABLE");result.put("quotas",List.of());result.put("models",List.of());result.put("model",null);
         result.put("status","UNKNOWN");result.put("connected",false);result.put("sharedCredentials",false);
+        result.put("usageWindow",window);
         result.put("recordedUsage",jdbc.queryForMap("""
             select count(*) as calls,count(*) filter(where total_tokens is null) as unreported_calls,
-            sum(input_tokens) as input_tokens,sum(output_tokens) as output_tokens,sum(total_tokens) as total_tokens
-            from ai_usage_events where user_id=? and occurred_at>=now()-interval '24 hours' and (provider='nous' or provider is null)
-            """,user));
-        result.put("recordedUsagePeriod","Últimas 24 horas nesta conta Ayla; não representa a cota Nous nem o consumo de outros usuários.");
+            sum(input_tokens) as input_tokens,sum(output_tokens) as output_tokens,sum(total_tokens) as total_tokens,
+            count(*) filter(where status>=400) as failures
+            from ai_usage_events where user_id=? and occurred_at>=? and occurred_at<=? and (provider='nous' or provider is null)
+            """,user,java.sql.Timestamp.from(window.from()),java.sql.Timestamp.from(window.to())));
+        result.put("recordedUsageByModel",jdbc.queryForList("""
+            select model,count(*) as calls,count(*) filter(where total_tokens is null) as unreported_calls,
+            sum(input_tokens) as input_tokens,sum(output_tokens) as output_tokens,sum(total_tokens) as total_tokens,
+            count(*) filter(where status>=400) as failures,max(occurred_at) as last_call
+            from ai_usage_events where user_id=? and occurred_at>=? and occurred_at<=? and (provider='nous' or provider is null)
+            group by model order by total_tokens desc nulls last,model limit 100
+            """,user,java.sql.Timestamp.from(window.from()),java.sql.Timestamp.from(window.to())));
+        result.put("recordedUsagePeriod",window.label()+" nesta conta Ayla. Inclui as chamadas registradas pela Ayla, não o consumo externo nem o saldo da cota Nous.");
         if(profile==null){result.put("message","Conecte seu perfil Hermes para monitorar a disponibilidade.");return responseTime(result,started);}
         boolean loginRequired=false;
         try{

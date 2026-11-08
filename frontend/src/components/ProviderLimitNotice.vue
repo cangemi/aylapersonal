@@ -45,7 +45,7 @@ onBeforeUnmount(() => clearInterval(timer))
       >Tempo restante: <b>{{ duration(remaining) }}</b></span
     >
     <span v-else>O provedor não informou o prazo para liberação.</span>
-    <span>Próxima tentativa interna do Hermes: {{ localTime(availability.retryAttemptAt) }}</span>
+    <span v-if="availability.retryAttemptAt">Próxima tentativa informada: {{ localTime(availability.retryAttemptAt) }}</span>
     <p v-if="conversation && !retryable">
       O pedido não teve sua conclusão confirmada. O Hermes pode continuar processando; confira o
       resultado antes de repetir alterações.

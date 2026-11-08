@@ -328,21 +328,6 @@ onBeforeUnmount(() => {
     <ProviderUsagePanel v-if="management && status?.provisioned && !pending" :key="usageVersion" />
     <div v-if="management" class="hermes-management">
       <section class="hermes-management-card">
-        <Icon name="wallet" :size="22" />
-        <h3>Conta e planos da Nous</h3>
-        <p class="muted">
-          Consulte seu uso, os planos disponíveis e as opções para ampliar sua assinatura. Entre com
-          a mesma conta Nous que você conectou à Ayla.
-        </p>
-        <ExternalLink class="button secondary" href="https://portal.nousresearch.com/billing"
-          >Ver planos e gerenciar assinatura</ExternalLink
-        >
-        <small
-          >Preços, limites e contratação são apresentados pela Nous. Depois de alterar seu plano,
-          volte aqui e clique em “Verificar conexão”.</small
-        >
-      </section>
-      <section class="hermes-management-card">
         <Icon name="sparkles" :size="22" />
         <h3>Preferências da Ayla</h3>
         <p class="muted">
@@ -432,7 +417,7 @@ onBeforeUnmount(() => {
 }
 .hermes-management {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px 24px;
   border-top: 1px solid var(--line);
   padding-top: 22px;

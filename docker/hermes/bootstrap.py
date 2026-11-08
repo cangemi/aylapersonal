@@ -6,6 +6,8 @@ import shutil
 import subprocess
 import secrets
 
+MANAGED_PLUGINS = ("ayla-research", "ayla-finance", "ayla-provider-monitor")
+
 # Native dashboard speech defaults to WhatsApp-compatible Opus; session contexts override this.
 os.environ.setdefault("HERMES_SESSION_PLATFORM", "whatsapp")
 os.environ.setdefault("AYLA_PROVIDER_MONITOR_BACKGROUND", "1")
@@ -46,7 +48,7 @@ config["memory"] = {
 config["plugins"] = {"enabled": ["ayla-research", "ayla-finance"], "hook_callback_timeout": 120, "entries": {"ayla-research": {"llm": {"allow_provider_override": True, "allowed_providers": ["nous"], "allow_model_override": True, "allowed_models": ["*"]}}}}
 config.setdefault("web", {}).update({"backend": "ddgs", "search_backend": "ddgs", "keyless_fallback": False})
 path.write_text(json.dumps(config, ensure_ascii=False, indent=2))
-for plugin_id in ("ayla-research", "ayla-finance", "ayla-provider-monitor"):
+for plugin_id in MANAGED_PLUGINS:
     plugin = home / "plugins" / plugin_id
     plugin.mkdir(parents=True, exist_ok=True)
     for name in ("plugin.yaml", "__init__.py"):
@@ -92,7 +94,7 @@ for relative, content in {
     if target.is_symlink():
         raise RuntimeError("Neutral Hermes template file is a symlink")
     target.write_text(content, encoding="utf-8")
-for plugin_id in ("ayla-research", "ayla-finance", "ayla-provider-monitor"):
+for plugin_id in MANAGED_PLUGINS:
     target = template / "plugins" / plugin_id
     if target.is_symlink():
         raise RuntimeError("Neutral Hermes plugin path is a symlink")
@@ -122,9 +124,9 @@ for profile in (home / "profiles").glob("u-*"):
             shutil.copyfile(profile_persona, backup_persona)
         shutil.copyfile(persona, profile_persona)
         os.chown(profile_persona, hermes_user.pw_uid, hermes_user.pw_gid)
-    # Calendar tools join the managed ayla_finance bundle already enabled here;
-    # do not rewrite user config or require YAML dependencies in the PM bootstrap.
-    for plugin_id in ("ayla-finance", "ayla-provider-monitor"):
+    # Sync the same managed plugins as the owner and neutral template, including research.
+    # User config, credentials, memories and sessions remain untouched.
+    for plugin_id in MANAGED_PLUGINS:
         if (profile / "plugins").is_symlink():
             raise RuntimeError("User profile plugin root contains a symlink")
         target = profile / "plugins" / plugin_id

@@ -12,7 +12,8 @@ Implementação na área **Conexões → Hermes** e nos avisos do chat. Não cha
 - A quota vem de `hermes_cli.nous_account.get_nous_portal_account_info(force_fresh=True)` e do normalizador nativo `agent.account_usage.build_nous_credits_snapshot`. A consulta usa a API oficial `https://portal.nousresearch.com/api/oauth/account`, com o OAuth do próprio perfil. Não há scraping autenticado, exportação de tokens ou alteração direta das credenciais.
 - A consulta oficial roda a cada 60 segundos nos processos Hermes com o plugin carregado. O backend persiste o último resultado e apresenta erro, ausência de quota ou desatualização após 180 segundos sem atualização. Não mostra uma barra para dados desconhecidos ou desatualizados.
 - As porcentagens vêm exclusivamente de cotas verificáveis: percentual normalizado pelo Hermes ou razão entre uso e teto oficial conhecidos. Contagem histórica de tokens nunca gera percentual de cota. As janelas fornecidas pela API são exibidas individualmente, incluindo conta, modelo ou família de modelos.
-- `ai_usage_events` continua sendo o registro existente de chamadas e tokens. A tela mostra as últimas 24 horas do próprio usuário, com chamadas sem tokens informados separadas e indicação expressa de que esse histórico não é a cota Nous.
+- `ai_usage_events` continua sendo o registro de chamadas e tokens. A tela oferece hoje, últimas 24 horas, últimos sete dias e mês atual, com total/entrada/saída e divisão por modelo do próprio usuário. Hoje e mês usam America/Sao_Paulo; os demais são janelas móveis. Chamadas sem contagem tornam o total parcial, sem converter ausência em zero. Esse histórico não é a cota Nous e não é somado aos eventos internos de telemetria, evitando contagem duplicada.
+- Limites por modelo ficam visíveis com detecção, previsão e contador local. Cotas oficiais recebem destaque a partir de 80% e ao atingir 100%. Sem um teto oficial, não há percentual estimado nem previsão inventada de esgotamento. Os créditos de assinatura são identificados como US$, e sua renovação é preservada quando informada pelo provedor; não são apresentados como um teto de tokens gratuitos.
 - O frontend consulta o backend a cada 30 segundos enquanto o painel estiver ativo. O relógio regressivo é local, atualizado a cada segundo, usando UTC do servidor, tempo monotônico e estimativa de latência descontando o processamento no backend. As datas são formatadas no fuso do navegador.
 
 Fontes verificadas: [hooks oficiais](https://hermes-agent.nousresearch.com/docs/user-guide/features/hooks), [consulta nativa da conta Nous](https://github.com/NousResearch/hermes-agent/blob/main/hermes_cli/nous_account.py), [normalização oficial das cotas](https://github.com/NousResearch/hermes-agent/blob/main/agent/account_usage.py).
@@ -99,7 +100,7 @@ essa atualização.
 
 | Endpoint | Autenticação e finalidade |
 |---|---|
-| `GET /api/v1/me/hermes/usage` | Login Ayla; saúde, modelo, estados, quotas oficiais e uso local do próprio usuário. `Cache-Control: no-store`. |
+| `GET /api/v1/me/hermes/usage?period=24H` | Login Ayla; saúde, modelo, estados, quotas oficiais e uso local por modelo. Períodos `DAY`, `24H`, `7D` e `MONTH`; filtro por usuário autenticado e `Cache-Control: no-store`. |
 | `POST /internal/hermes/provider-events` | Bearer interno, perfil exclusivo ativo; recebe apenas metadados normalizados. Não exige uma sessão de chat porque consultas oficiais também ocorrem fora de conversas. |
 | `POST /api/v1/chat/jobs/{id}/retry` | Login Ayla, proprietário do job, pedido WEB comprovadamente não enviado e sem outro pedido ativo; reaproveita o mesmo job. |
 | `GET /api/v1/chat/jobs/{id}` e `GET /api/v1/chat/jobs` | Acrescentam `availability` e `retryable`; preservam o status real do job. |

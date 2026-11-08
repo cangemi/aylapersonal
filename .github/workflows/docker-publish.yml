@@ -465,7 +465,7 @@ jobs:
           fi
 
           echo "Validating Hermes managed plugin synchronization..."
-          for plugin in ayla-finance ayla-research; do
+          for plugin in ayla-finance ayla-research ayla-provider-monitor; do
             for filename in __init__.py plugin.yaml; do
               source="docker/hermes/plugins/$plugin/$filename"
               if [[ ! -f "$source" ]]; then

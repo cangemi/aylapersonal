@@ -19,7 +19,7 @@ public class ProviderUsageController {
         this.usage=usage;this.availability=availability;this.jdbc=jdbc;this.identity=identity;
     }
     @GetMapping("/api/v1/me/hermes/usage")
-    public ResponseEntity<Map<String,Object>> view(Principal principal){return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(usage.view(identity.resolve(principal)));}
+    public ResponseEntity<Map<String,Object>> view(Principal principal,@RequestParam(defaultValue="24H") String period){return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(usage.view(identity.resolve(principal),period));}
 
     @PostMapping("/internal/hermes/provider-events") @ResponseStatus(org.springframework.http.HttpStatus.NO_CONTENT)
     public void event(@Valid @RequestBody ProviderUsageData.Event event){

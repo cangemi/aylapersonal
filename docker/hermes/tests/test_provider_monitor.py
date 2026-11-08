@@ -80,6 +80,16 @@ class ProviderMonitorTest(unittest.TestCase):
         self.assertIsNone(monitor.retry_seconds({'retry_after': float('nan')}))
         self.assertIsNone(monitor.retry_seconds({'retry_after': True}))
 
+    def test_subscription_credit_percentage_is_not_presented_as_a_token_quota(self):
+        snapshot = types.SimpleNamespace(windows=[types.SimpleNamespace(label='Subscription', used_percent=80, reset_at=None, scope='account')])
+        account = types.SimpleNamespace(subscription=types.SimpleNamespace(current_period_end='2026-12-01T03:00:00Z'))
+        quota = monitor.normalize_quotas(snapshot, account)[0]
+        self.assertEqual(quota['label'], 'Créditos da assinatura (US$)')
+        self.assertEqual(quota['period'], 'SUBSCRIPTION')
+        self.assertEqual(quota['resetsAt'], '2026-12-01T03:00:00+00:00')
+        self.assertIsNone(quota['limit'])
+        self.assertIsNone(quota['used'])
+
 
 class CredentialIsolationTest(unittest.TestCase):
     def test_same_account_across_profiles_and_token_refresh_has_same_scope(self):
