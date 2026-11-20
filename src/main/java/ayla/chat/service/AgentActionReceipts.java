@@ -30,6 +30,7 @@ public class AgentActionReceipts {
     public Set<String> missingDomains(String user,UUID turn,String message,String response){
         var claimed=claimedDomains(response);
         String normalized=Normalizer.normalize(Objects.toString(response,""),Normalizer.Form.NFD).replaceAll("\\p{M}","").toLowerCase(Locale.ROOT);
+        if (CALENDAR_PROMISE.matcher(normalized).find()) claimed.add("calendar");
         if(claimed.isEmpty()&&normalized.length()<160&&normalized.matches("(?s)^\\s*(pronto|feito|anotei|salvei|registrei|concluido)\\b[^?]*")
                 &&!normalized.matches("(?s).*\\b(nao|vou|preciso|falta)\\b.*")){
             String request=Normalizer.normalize(Objects.toString(message,""),Normalizer.Form.NFD).replaceAll("\\p{M}","").toLowerCase(Locale.ROOT);
@@ -45,12 +46,15 @@ public class AgentActionReceipts {
             """,String.class,user,turn);
         var missing=new LinkedHashSet<>(claimed);missing.removeAll(actual);return missing;
     }
-    private static final Pattern DONE=Pattern.compile("\\b(anotei|registrei|salvei|cadastrei|adicionei|inclui|criei|atualizei|alterei|removi|exclui|apaguei|agendei|cancelei|configurei|resgatei|retirei|apliquei|transferi|marquei|memorizei|guardei|efetuei|realizei|conclui|concluid[oa]s?|registrad[oa]s?|salv[oa]s?|agendad[oa]s?|cancelad[oa]s?|atualizad[oa]s?|removid[oa]s?|excluid[oa]s?|efetuad[oa]s?|realizad[oa]s?|criad[oa]s?|adicionad[oa]s?|configurad[oa]s?)\\b");
+    private static final Pattern CALENDAR_PROMISE = Pattern.compile(
+            "(?:^|[.!?\\n])\\s*(?:vou|irei)\\s+(?:marcar|agendar|confirmar|salvar|registrar)\\s+"
+                    + "(?:(?:a|o|na|no|uma|um|agora)\\s+){0,3}(?:consulta|compromisso|reuniao|evento|agendamento|agenda)\\b");
+    private static final Pattern DONE=Pattern.compile("\\b(anotei|registrei|salvei|cadastrei|adicionei|inclui|criei|atualizei|alterei|removi|exclui|apaguei|agendei|cancelei|configurei|resgatei|retirei|apliquei|transferi|marquei|memorizei|guardei|efetuei|realizei|conclui|concluid[oa]s?|registrad[oa]s?|salv[oa]s?|agendad[oa]s?|marcad[oa]s?|cancelad[oa]s?|atualizad[oa]s?|removid[oa]s?|excluid[oa]s?|efetuad[oa]s?|realizad[oa]s?|criad[oa]s?|adicionad[oa]s?|configurad[oa]s?)\\b");
     private static final Map<String,Pattern> DOMAINS=Map.of(
         "finance",Pattern.compile("r\\$|\\b(despesa|receita|gasto|lancamento|financeiro)\\b"),
         "investment",Pattern.compile("\\b(caixinha|resgate|aporte|investimento|aplicacao|carteira)\\b"),
         "household",Pattern.compile("\\b(lista|carrinho|despensa|estoque|compra de mercado)\\b"),
-        "calendar",Pattern.compile("\\b(compromisso|evento|reuniao|agenda|lembrete)\\b"),
+        "calendar",Pattern.compile("\\b(compromisso|evento|reuniao|agenda|lembrete|agendamento|consulta medica)\\b"),
         "alarm",Pattern.compile("\\b(alarme|despertador)\\b"),
         "memory",Pattern.compile("\\b(memoria|preferencia)\\b"));
     static Set<String> claimedDomains(String response){

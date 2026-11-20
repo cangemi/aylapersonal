@@ -87,7 +87,7 @@ async function finish() {
   try {
     const saved = await api('/auth/onboarding/complete', { method: 'POST' })
     setSession({ ...auth.session, user: saved })
-    await router.replace('/')
+    await router.replace('/painel')
   } catch (e) {
     error.value = e.message
   } finally {

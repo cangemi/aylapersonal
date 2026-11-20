@@ -96,7 +96,9 @@ Ao acessar pela rede local, inclua a origem HTTPS exata (por exemplo, https://19
 
 ## Aplicativo no celular (PWA)
 
-O manifest inicia em /chat e usa display standalone. Em telas até 900 px, a entrada após login é o chat. Visão geral continua acessível pelo menu Mais (/?visao=geral); a barra inferior oferece Conversa, Finanças e Compras. O seletor de conversas abre em um diálogo no celular. Conversas novas ou sem mensagens mantêm a imagem, sugestões e compositor; escolher uma sugestão preenche e focaliza a mensagem sem enviá-la automaticamente.
+O manifest inicia em /chat e usa display standalone. Em telas até 900 px, a entrada após login é o chat. Visão geral continua acessível pelo menu Mais (`/painel?visao=geral`), e a barra inferior oferece Conversa, Finanças e Compras. O seletor de conversas abre em um diálogo no celular. Conversas novas ou sem mensagens mantêm a imagem, sugestões e compositor; escolher uma sugestão preenche e focaliza a mensagem sem enviá-la automaticamente.
+
+O Nginx e o Vite servem `/`, `/privacy` e `/terms` a partir dos arquivos HTML em `institucional`, disponíveis sem login. A entrada usa `/login`. Para quem já entrou, o link Início abre a Visão geral em `/painel`.
 
 O botão Instalar Ayla usa o convite nativo quando disponível e oferece instruções para outros navegadores/iOS. É necessário HTTPS com certificado confiável: na LAN, instale a CA local conforme explicado acima. Ignorar o alerta TLS não garante instalação nem funcionamento de service worker/microfone. Após instalar, o navegador abre uma janela independente; autenticação continua obrigatória.
 

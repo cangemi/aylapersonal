@@ -29,7 +29,7 @@ const routes = [
     meta: { onboarding: true, title: 'Configuração inicial' },
   },
   {
-    path: '/',
+    path: '/painel',
     component: () => import('./pages/Dashboard.vue'),
     meta: { title: 'Visão geral', subtitle: 'Um pouco de tudo, do seu jeito.' },
   },
@@ -94,7 +94,7 @@ const routes = [
     component: () => import('./pages/Monitoring.vue'),
     meta: { title: 'Monitoramento', owner: true },
   },
-  { path: '/:pathMatch(.*)*', redirect: '/' },
+  { path: '/:pathMatch(.*)*', redirect: '/painel' },
 ]
 const router = createRouter({
   history: createWebHistory(),
@@ -104,17 +104,17 @@ const router = createRouter({
 router.beforeEach(async (to) => {
   if (!auth.checked) await restore()
   if (!to.meta.public && !auth.session) return { path: '/login', query: { redirect: to.fullPath } }
-  if (to.path === '/login' && auth.session) return '/'
+  if (to.path === '/login' && auth.session) return '/painel'
   const pending = auth.session?.user?.onboardingRequired
   if (pending && !to.meta.onboarding && !to.meta.public) return '/configuracao-inicial'
-  if (!pending && to.meta.onboarding) return '/'
+  if (!pending && to.meta.onboarding) return '/painel'
   if (
-    to.path === '/' &&
+    to.path === '/painel' &&
     window.matchMedia('(max-width: 900px)').matches &&
     to.query.visao !== 'geral'
   )
     return '/chat'
-  if (to.meta.owner && auth.session?.user?.role !== 'OWNER') return '/'
+  if (to.meta.owner && auth.session?.user?.role !== 'OWNER') return '/painel'
   document.title = `${to.meta.title || 'Seu espaço'} · Ayla`
 })
 const recoverChunk = createChunkRecovery({

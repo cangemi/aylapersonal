@@ -96,8 +96,7 @@
 /* Desktop: limita o chat à altura da janela */
 @media (min-width: 901px) {
   .chat-layout {
-    height: calc(100dvh - 100px);
-    max-height: calc(100dvh - 100px);
+    height: max(0px, calc(100dvh - 100px - var(--chat-footer-height)));
   }
 }
 
@@ -171,28 +170,16 @@
     background: var(--accent-bg);
   }
 
-  .page-footer {
-    display: none;
-  }
-
   /* Estrutura do chat */
   .chat-layout {
-    height: var(
+    height: max(0px, calc(var(
       --chat-available-height,
       calc(
         100dvh - 128px
         - env(safe-area-inset-top)
         - env(safe-area-inset-bottom)
       )
-    );
-    max-height: var(
-      --chat-available-height,
-      calc(
-        100dvh - 128px
-        - env(safe-area-inset-top)
-        - env(safe-area-inset-bottom)
-      )
-    );
+    ) - var(--chat-footer-height)));
     min-height: 0;
     flex-direction: row;
     overflow: hidden;
@@ -448,6 +435,19 @@
 
   .toast-stack {
     bottom: calc(82px + env(safe-area-inset-bottom));
+  }
+}
+
+@media (max-width: 600px) {
+  .app-shell {
+    --chat-footer-height: 60px;
+  }
+  .page-footer {
+    grid-template-columns: 1fr 1fr;
+  }
+  .footer-links {
+    grid-column: 1 / -1;
+    grid-row: 2;
   }
 }
 

@@ -172,7 +172,8 @@ defineExpose({ refresh })
         <span
           ><strong>Usar meu próprio número (principal)</strong
           ><small
-            >A Ayla usa seu número atual. Sua conversa pessoal continua no grupo Ayla.</small
+            >A Ayla responde pela sua conta. Como são mensagens enviadas por você, elas podem
+            aparecer sem aviso no seu celular.</small
           ></span
         >
       </label>
@@ -187,8 +188,8 @@ defineExpose({ refresh })
         <span
           ><strong>Usar um número exclusivo para a Ayla</strong
           ><small
-            >Conecte dois WhatsApps diferentes: o seu e o da Ayla. Os dois são necessários neste
-            modo.</small
+            >Conecte seu WhatsApp e o da Ayla. Na conversa privada, as respostas chegam da conta
+            da Ayla e seguem as notificações do WhatsApp no seu celular.</small
           ></span
         >
       </label>

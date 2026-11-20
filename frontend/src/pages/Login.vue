@@ -57,7 +57,7 @@ async function submit() {
       route.query.redirect.startsWith('/') &&
       !route.query.redirect.startsWith('//')
         ? route.query.redirect
-        : '/'
+        : '/painel'
     await router.replace(redirect)
   } catch (e) {
     error.value = e.message

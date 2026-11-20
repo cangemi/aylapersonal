@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#100d1a" />
+    <meta name="description" content="Saiba quais dados a Ayla usa, como funciona a conexão com o Google Calendar e como exercer seus direitos de privacidade." />
+    <link rel="canonical" href="https://aylapersonal.duckdns.org/privacy" />
+    <link rel="icon" href="/favicon.ico" />
+    <link rel="stylesheet" href="/institucional/publico.css" />
+    <script type="module" src="/src/publicNavigation.js"></script>
+    <title>Política de Privacidade · Ayla</title>
+  </head>
+  <body>
+    <header class="site-header wrap">
+      <a class="brand" href="/" data-home-link aria-label="Ayla, início">
+        <img src="/ayla-logo.png" width="36" height="36" alt="" />
+        <span class="wordmark">Ayla <span aria-hidden="true">✦</span></span>
+      </a>
+      <nav aria-label="Navegação principal">
+        <a href="/" data-home-link>Início</a>
+        <a class="button button-outline" href="/login" data-public-login hidden>Entrar</a>
+      </nav>
+    </header>
+
+    <main class="policy wrap">
+      <article aria-labelledby="titulo">
+        <header>
+          <h1 id="titulo">Política de Privacidade</h1>
+          <p>Última atualização em <time datetime="2026-11-20">20 de novembro de 2026</time>.</p>
+          <p>Esta política descreve o tratamento de dados da Ayla, assistente pessoal com inteligência artificial disponível em <a href="/">aylapersonal.duckdns.org</a>. O responsável pela aplicação é Pedro Cangemi. Para assuntos de privacidade, escreva para <a href="mailto:pedrocangemi@gmail.com">pedrocangemi@gmail.com</a>.</p>
+        </header>
+
+        <section aria-labelledby="dados">
+          <h2 id="dados">Dados que a Ayla trata</h2>
+          <ul>
+            <li><strong>Conta e segurança.</strong> Nome de exibição, nome de usuário, senha protegida por hash e registros de sessão e acesso. Se você vincular o WhatsApp, a Ayla também trata números, identificadores de conversas e dados de sessão necessários à conexão e, quando configurada, à recuperação de conta.</li>
+            <li><strong>Conversa e recursos pessoais.</strong> Mensagens, respostas, anexos que você envia, preferências e memórias. Conforme os recursos que usa, a Ayla também guarda informações de agenda, alarmes e lembretes, registros financeiros e de investimentos, itens da despensa e compras. Esses dados permitem responder, manter seu histórico e executar as operações solicitadas.</li>
+            <li><strong>Operação do serviço.</strong> Registros operacionais, como horário, tipos de requisição, erros e informações de uso, ajudam a manter o serviço e diagnosticar problemas. O navegador guarda a sessão da Ayla e a preferência de tema quando você usa a área autenticada.</li>
+          </ul>
+        </section>
+
+        <section aria-labelledby="google">
+          <h2 id="google">Autorização e dados do Google Calendar</h2>
+          <p>A conexão é opcional e começa quando você escolhe conectar uma conta em <strong>Agenda</strong>. O Google exibe as permissões e só concede acesso após a sua autorização. O login da Ayla é separado da autorização do Google Calendar.</p>
+          <ul>
+            <li><code>https://www.googleapis.com/auth/calendar.readonly</code> permite ler agendas no Google. A Ayla usa essa permissão para identificar a agenda principal de cada conta conectada e ler seus metadados, como identificador e nome.</li>
+            <li><code>https://www.googleapis.com/auth/calendar.events</code> permite ver e editar eventos nos calendários acessíveis à conta. A Ayla usa o acesso para ler os eventos da agenda principal de cada conta conectada e para criar, atualizar ou excluir eventos vinculados no Google quando a opção <strong>Ayla pode registrar</strong> estiver habilitada para a conexão usada para gravação.</li>
+          </ul>
+          <p>Para exibir seus compromissos, verificar conflitos, sincronizar alterações e gerar lembretes, a Ayla guarda no PostgreSQL os campos usados pelo recurso. Eles incluem título, descrição, local, início, fim, fuso, indicação de dia inteiro, lembretes, identificador do evento, estado de cancelamento e informações para detectar alterações. Eventos recorrentes podem ser importados como ocorrências individuais.</p>
+          <p>A sincronização consulta uma janela móvel de 30 dias anteriores a 730 dias futuros. Ela consulta, cria ou atualiza eventos conforme as alterações na agenda da Ayla e no Google. Um cancelamento na Ayla pode excluir do Google o evento vinculado quando a sincronização de gravação estiver habilitada. <a href="https://developers.google.com/workspace/calendar/api/auth">Permissões da API do Google Calendar</a>.</p>
+        </section>
+
+        <section aria-labelledby="armazenamento">
+          <h2 id="armazenamento">Armazenamento, proteção e retenção</h2>
+          <p>O servidor usa o token de acesso temporário para chamar as APIs do Google. Para renovar o acesso e sincronizar em segundo plano, a Ayla guarda o token de renovação no PostgreSQL, criptografado com AES-256-GCM e vinculado à conta da Ayla. Os tokens do Google ficam no servidor e não são enviados ao navegador nem ao modelo de IA.</p>
+          <p>O token de renovação fica armazenado enquanto a conexão estiver ativa e é removido do registro ativo ao desconectar na Ayla. Dados da agenda importados e metadados da conexão podem continuar na base após a desconexão. A janela de sincronização define quais eventos são consultados no Google, sem determinar a exclusão das cópias já importadas.</p>
+          <p>Os registros de conta, eventos e histórico podem permanecer enquanto estiverem associados à conta. Não há prazo automático geral de exclusão para esses registros no aplicativo. Os dados de sessão têm expiração. Para consultar a retenção aplicável a registros específicos ou a cópias de segurança, ou solicitar a exclusão, use o contato desta política.</p>
+        </section>
+
+        <section aria-labelledby="servicos">
+          <h2 id="servicos">Serviços externos e uso limitado</h2>
+          <ul>
+            <li><strong>Google.</strong> A Ayla troca credenciais e dados de eventos com o Google para autorizar a conexão, consultar a agenda e sincronizar as operações habilitadas.</li>
+            <li><strong>Inteligência artificial.</strong> A Ayla usa Hermes com o serviço de inferência da Nous Research. Mensagens, contexto relevante e, conforme o pedido, resultados de ferramentas ou mídia podem integrar a chamada ao modelo. Quando você usa a IA para consultar ou alterar a agenda, os detalhes necessários dos eventos, inclusive os importados do Google, podem fazer parte do contexto enviado para responder ao pedido. <a href="https://portal.nousresearch.com/privacy">Política de Privacidade da Nous Research</a>.</li>
+            <li><strong>WhatsApp e voz.</strong> Quando você configura o WhatsApp, as respostas podem passar pelo serviço do WhatsApp. Lembretes enviados ao seu WhatsApp podem incluir título, horário e local do evento. Quando há uma resposta de voz, o texto da fala pode ser enviado ao serviço de síntese Microsoft Edge para gerar o áudio.</li>
+            <li><strong>Pesquisa na web.</strong> Quando a Ayla usa a pesquisa, os termos da busca são enviados ao serviço de pesquisa externo para obter resultados.</li>
+          </ul>
+          <p>A Ayla se compromete a tratar e compartilhar as informações recebidas das APIs do Google conforme a Política de Dados do Usuário dos Serviços de API do Google, incluindo os requisitos de Uso Limitado (Limited Use). A Ayla usa esses dados para fornecer os recursos de agenda descritos acima. A Ayla não usa esses dados para publicidade, venda de dados ou treinamento de modelos de IA de uso geral. <a href="https://developers.google.com/terms/api-services-user-data-policy">Política de Dados do Usuário dos Serviços de API do Google</a> e <a href="https://developers.google.com/workspace/workspace-api-user-data-developer-policy">política para dados do Google Workspace</a>.</p>
+        </section>
+
+        <section aria-labelledby="revogacao">
+          <h2 id="revogacao">Como desconectar ou revogar o acesso</h2>
+          <ol>
+            <li>Na Ayla, abra <strong>Agenda</strong> e escolha <strong>Desconectar</strong> na conta Google desejada. Isso apaga o token de renovação da conexão ativa e interrompe a sincronização com essa conta.</li>
+            <li>Para revogar a permissão no Google, abra <a href="https://myaccount.google.com/connections">Conexões com apps e serviços de terceiros</a> na sua Conta Google, selecione Ayla e remova o acesso. Para excluir também os dados que já foram copiados para a Ayla, faça o pedido pelo canal abaixo.</li>
+          </ol>
+        </section>
+
+        <section aria-labelledby="direitos">
+          <h2 id="direitos">Exclusão de dados e direitos previstos na LGPD</h2>
+          <p>Para pedir a exclusão dos seus dados, inclusive de eventos já importados, escreva para <a href="mailto:pedrocangemi@gmail.com">pedrocangemi@gmail.com</a>. Informe o nome de usuário da Ayla e os dados que deseja excluir. Podemos precisar confirmar sua identidade para atender ao pedido. Nunca envie senhas ou tokens. A exclusão de cópias na Ayla é diferente da gestão dos eventos que permanecem na sua Conta Google.</p>
+          <p>Pelo mesmo canal, você pode solicitar confirmação do tratamento, acesso e correção dos dados, anonimização, bloqueio ou eliminação de dados nas hipóteses previstas em lei, além de portabilidade nos termos da regulamentação. Também pode pedir informações sobre compartilhamento e sobre as consequências de negar consentimento, revogar consentimento quando aplicável, solicitar a eliminação de dados tratados com base nele e exercer os demais direitos previstos em lei. Você também pode apresentar uma petição à Autoridade Nacional de Proteção de Dados. <a href="https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2018/lei/l13709compilado.htm">Lei Geral de Proteção de Dados Pessoais</a>.</p>
+        </section>
+      </article>
+    </main>
+
+    <footer class="site-footer wrap">
+      <span class="wordmark">Ayla <span aria-hidden="true">✦</span></span>
+      <nav aria-label="Informações da Ayla">
+        <a href="/">Sobre a Ayla</a>
+        <a href="/terms">Termos de Uso</a>
+        <a href="mailto:pedrocangemi@gmail.com">Contato de privacidade</a>
+      </nav>
+    </footer>
+  </body>
+</html>

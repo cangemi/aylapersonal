@@ -2,7 +2,7 @@
 
 A agenda própria funciona sem Google. Compromissos e lembretes ficam no PostgreSQL e pertencem ao usuário autenticado. App e ferramentas da Ayla usam o mesmo serviço Java. A migração V32 cria as tabelas; não altera lançamentos financeiros nem históricos de conversa.
 
-Na interface, abra **Agenda** pelo menu, barra inferior ou sino. Crie/edite um compromisso e escolha até cinco lembretes em minutos, horas ou dias (máximo 28 dias antes). Remover os lembretes mantém o compromisso; cancelar o compromisso cancela seus avisos. Datas relativas da Ayla usam America/Sao_Paulo. O formulário permite escolher outros fusos. Na conversa, se faltar término ou duração, a Ayla pergunta antes de salvar. Horários coloquiais entre 1 e 12 sem período explícito exigem esclarecer manhã/tarde/noite. A confirmação apresenta início e fim em 24 horas.
+Na interface, abra **Agenda** pelo menu, barra inferior ou sino. Crie/edite um compromisso e escolha até cinco lembretes em minutos, horas ou dias (máximo 28 dias antes). Remover os lembretes mantém o compromisso; cancelar o compromisso cancela seus avisos. Datas relativas da Ayla usam America/Sao_Paulo. O formulário permite escolher outros fusos. Na conversa, se faltar término ou duração, a Ayla pergunta antes de salvar. Horas isoladas e ambíguas, como “às 11”, exigem esclarecer o período. Horários escritos como `11:00` ou `12:00` já estão no formato de 24 horas. A confirmação apresenta início e fim nesse mesmo formato.
 
 Exemplos de conversa:
 
@@ -100,7 +100,7 @@ A ferramenta calendar_save recebe id e version no nível principal e os campos e
 
 ### Oferta de lembrete durante o agendamento
 
-Após salvar um novo compromisso, a Ayla pergunta se o usuário quer ser lembrado, uma única vez, quando essa escolha ainda não foi informada. A pergunta é obrigatória mesmo que o lembrete não seja. Uma resposta positiva sem antecedência leva à pergunta de quanto tempo antes (dias, horas ou minutos). Uma antecedência já informada é aplicada diretamente, e uma recusa explícita encerra a oferta. A continuação atualiza o mesmo evento após consulta ao banco, preservando o início e os outros campos. Não cria um segundo compromisso. O aviso é entregue à conversa principal configurada do proprietário da conta, independentemente da conversa onde o lembrete foi combinado. A oferta não se repete em consultas ou edições sem relação com lembretes.
+Após salvar um novo compromisso cujo início ainda está no futuro, a Ayla pergunta se o usuário quer ser lembrado, uma única vez, quando essa escolha ainda não foi informada. Uma resposta positiva sem antecedência leva à pergunta de quanto tempo antes (dias, horas ou minutos). Uma antecedência já informada é aplicada diretamente, e uma recusa explícita encerra a oferta. A continuação atualiza o mesmo evento após consulta ao banco, preservando o início e os outros campos. Não cria um segundo compromisso. O aviso é entregue à conversa principal configurada do proprietário da conta, independentemente da conversa onde o lembrete foi combinado. A oferta não se repete em consultas ou edições sem relação com lembretes.
 
 Quando o usuário fala que quer ser lembrado ("quero que você me lembre", "me lembra"), use a resposta como a decisão: com "sim" e tempo informado, a Ayla configura o lembrete no compromisso correspondente; com "sim" sem tempo, pergunta quanto tempo antes; com recusa, não configura nem oferece de novo. O aviso confirmado segue para a conversa principal configurada do proprietário, no grupo principal do WhatsApp, independentemente da conversa em que foi combinado.
 
@@ -112,7 +112,7 @@ Horários informais seguem o padrão 24 horas: "11 da manhã" é 11:00, "3 da ta
 
 ### Horários na conversa
 
-“Dentista amanhã às 11” pede esclarecer “11 da manhã ou da noite?” e término/duração. “Às 23:00 por uma hora” já define 23:00 até 00:00 do dia seguinte. “Das 23:00 às 01:00” exige confirmar o dia do término. Não se presume uma hora de duração nem horário para a palavra “noite” isolada. Cada novo agendamento recebe oferta de lembrete se a escolha ainda não foi informada. Um sim sem antecedência pede horas ou dias antes. Datas com offset e fuso IANA e término posterior ao início preservam o formato usado na sincronização Google; eventos de dia inteiro usam término exclusivo.
+“Dentista amanhã às 11” pede esclarecer “11 da manhã ou da noite?” e término/duração. “Às 23:00 por uma hora” já define 23:00 até 00:00 do dia seguinte. “Das 23:00 às 01:00” exige confirmar o dia do término. A Ayla verifica conflitos e salva no mesmo turno quando o pedido traz todos os dados. Se o início exato já tiver passado e o compromisso ainda estiver em andamento, ela preserva o intervalo informado. Datas com offset e fuso IANA e término posterior ao início preservam o formato usado na sincronização Google; eventos de dia inteiro usam término exclusivo.
 
 ### Conflitos de horário
 
@@ -128,7 +128,7 @@ API: GET /api/v1/calendar/events/{id}/reminders consulta avisos; POST na mesma U
 
 ### Horários locais para a IA e checagem de disponibilidade
 
-A API pública mantém os instantes originais. No resumo e nas ferramentas Hermes, os eventos são apresentados com startsAt/endsAt com offset do evento e localStart/localEnd explícitos (dd/MM/yyyy HH:mm), calculados por ZoneId no Java. Assim 11:40Z é apresentado como 08:40 em America/Sao_Paulo. calendar_check recebe início e término ISO com offset e calcula a sobreposição no PostgreSQL. Sem término, retorna canConfirmFree=false, mesmo quando o início não está ocupado: não é possível confirmar disponibilidade do intervalo desconhecido. Horas isoladas entre 1 e 12 exigem esclarecer período no pedido atual; conflitos não autorizam assumir manhã/noite.
+A API pública mantém os instantes originais. No resumo e nas ferramentas Hermes, os eventos são apresentados com startsAt/endsAt com offset do evento e localStart/localEnd explícitos (dd/MM/yyyy HH:mm), calculados por ZoneId no Java. Assim 11:40Z é apresentado como 08:40 em America/Sao_Paulo. calendar_check recebe início e término ISO com offset e calcula a sobreposição no PostgreSQL. Sem término, retorna canConfirmFree=false, mesmo quando o início não está ocupado: não é possível confirmar disponibilidade do intervalo desconhecido.
 
 ### Pedidos de agenda com várias etapas
 

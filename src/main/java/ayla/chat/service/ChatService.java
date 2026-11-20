@@ -149,7 +149,7 @@ public class ChatService {
             // One bounded correction, reusing the same database turn/idempotency key.
             var correction=new HashMap<>(body);
             correction.put("instructions",body.get("instructions")
-                    + " A confirmação anterior não tem comprovante de execução neste turno. Use as ferramentas adequadas ao pedido ATUAL e confira o resultado antes de confirmar. "
+                    + " A resposta anterior anunciou uma ação sem comprovante de execução neste turno. Use as ferramentas adequadas ao pedido ATUAL e confira o resultado antes de responder. "
                     + "Consulte dados/versões necessários, execute só as ações autorizadas ainda não realizadas e não repita ações já comprovadas. "
                     + "Respeite os dados obrigatórios: se faltar descrição, data completa, horário ou alvo, pergunte apenas o que falta. Nunca transforme resgate em aporte nem duplique investimento no financeiro. "
                     + "Se a ferramenta falhar, informe a falha; não declare sucesso nem gere promessa de execução.");

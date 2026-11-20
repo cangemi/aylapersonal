@@ -138,18 +138,32 @@ class WhatsappManager {
     }
     async delivery(chatId) {
         if (!this.integrationActive()) throw Object.assign(new Error('Conecte os WhatsApps necessários para conversar.'), {status:409});
-        const ownEpoch = this.connectionEpoch;
-        if (this.connectionMode !== 'dedicated') return {client:this.client, chatId, active:()=>this.connectionEpoch === ownEpoch && this.integrationActive()};
+        const owner = this.client, ownEpoch = this.connectionEpoch;
+        const ownerActive = () => this.client === owner && this.connectionEpoch === ownEpoch && this.integrationActive();
+        if (this.connectionMode !== 'dedicated') return {client:owner, chatId, active:ownerActive};
         const peer = this.assistant, client = peer.client, epoch = peer.connectionEpoch;
-        const contact = await this.repository.find(chatId, null);
         const number = client.info.wid.user;
         const personal = !chatId.endsWith('@g.us')
-            && (chatId === `${number}@c.us` || chatId === wid(client.info.wid) || contact?.phone === number);
+            && (chatId === `${number}@c.us` || chatId === wid(client.info.wid)
+                || (await this.findChat(chatId))?.phone === number);
         // Only the private conversation with Ayla uses her dedicated account.
         // Other chats keep the original user's sender and destination.
-        if (!personal) return {client:this.client, chatId, active:()=>this.connectionEpoch === ownEpoch && this.integrationActive()};
-        return {client, chatId:`${this.client.info.wid.user}@c.us`,
-            active:()=>this.connectionEpoch === ownEpoch && this.integrationActive() && this.assistant === peer && peer.client === client && peer.connectionEpoch === epoch};
+        if (!personal) return {client:owner, chatId, active:ownerActive};
+        return {client, chatId:`${owner.info.wid.user}@c.us`,
+            active:()=>ownerActive() && this.assistant === peer && peer.client === client && peer.connectionEpoch === epoch};
+    }
+    async chatPhone(chatId) {
+        if (chatId.endsWith('@c.us')) return chatId.split('@')[0];
+        if (!chatId.endsWith('@lid') || !this.client?.getContactLidAndPhone) return null;
+        const mapped = await this.client.getContactLidAndPhone([chatId]);
+        return mapped?.[0]?.pn?.split('@')[0] || null;
+    }
+    async findChat(chatId) {
+        const contact = await this.repository.find(chatId, null);
+        if (contact?.phone || !chatId.endsWith('@lid')) return contact;
+        const phone = await this.chatPhone(chatId);
+        if (!phone) return contact;
+        return contact ? { ...contact, phone } : this.repository.find(chatId, phone);
     }
     getQR() { return { state: this.phase, qr: this.qr?.raw || null, qrImageDataUrl: this.qr?.image || null,
         qrAscii: this.qr?.ascii || null, generatedAt: this.qr?.generatedAt || null }; }
@@ -396,11 +410,7 @@ class WhatsappManager {
         try {
             if ((command || called) && message.fromMe !== true) {await this.repository.finish(messageId,'ignored');return;}
             if(this.repository.accountEnabled&&!await this.repository.accountEnabled()){await this.repository.finish(messageId,'ignored');return;}
-            let phone = chatId.endsWith('@c.us') ? chatId.split('@')[0] : null;
-            if (chatId.endsWith('@lid') && this.client.getContactLidAndPhone) {
-                const mapped = await this.client.getContactLidAndPhone([chatId]);
-                phone = mapped?.[0]?.pn?.split('@')[0] || null;
-            }
+            const phone = await this.chatPhone(chatId);
             let contact = await this.repository.find(chatId, phone);
             if (this.connectionMode === 'dedicated' && phone === this.assistant?.client?.info?.wid?.user && !contact?.enabled) {
                 contact = await this.repository.authorize({chatId,phone,name:'Ayla',mentionOnly:false},'personal-chat');
@@ -615,7 +625,7 @@ class WhatsappManager {
             this.log.error('[whatsapp] mensagem não concluída:', JSON.stringify({ stage, type: error.name,
                 code: error.response?.status || error.code, detail }));
             await Promise.all(ids.map(id => this.repository.finish(id, 'failed')));
-            const contact = await this.repository.find(chatId, null);
+            const contact = await this.findChat(chatId);
             if (contact?.enabled && this.client === receivingClient && this.connectionEpoch === epoch && this.phase === 'ready'
                     && (!this.repository.accountEnabled||await this.repository.accountEnabled())) {
                 // Never retry the AI automatically: the original turn may already have saved financial data.
@@ -778,7 +788,7 @@ class WhatsappManager {
         await this.sendText(sendingClient,destination,audio?HEADER:formattedReply);
         if(audio && route.active()) {
             try {
-                const contact=await this.repository.find(chatId,null);
+                const contact=await this.findChat(chatId);
                 if(!contact?.enabled) {
                     await Promise.all(ids.map(id=>this.repository.finish(id,'cancelled')));return;
                 }
@@ -795,13 +805,13 @@ class WhatsappManager {
             } catch(error) {
                 const detail=String(error.message||error.name).replace(/https?:\/\/\S+/g,'[url]').slice(0,600);
                 this.log.error('[whatsapp] voz indisponível; entregando resposta em texto:',JSON.stringify({type:error.name,detail}));
-                if(route.active() && (await this.repository.find(chatId,null))?.enabled)
+                if(route.active() && (await this.findChat(chatId))?.enabled)
                     await this.sendText(sendingClient,destination,formattedReply);
                 await Promise.all(ids.map(id=>this.repository.finish(id,'sent',reply)));
                 return;
             }
             if(text.textSupplement && route.active()
-                    && (await this.repository.find(chatId,null))?.enabled)
+                    && (await this.findChat(chatId))?.enabled)
                 await this.sendText(sendingClient,destination,formatReply(text.textSupplement));
         }
         await Promise.all(ids.map(id=>this.repository.finish(id,'sent',reply)));

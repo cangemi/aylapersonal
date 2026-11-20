@@ -1,5 +1,6 @@
 <script setup>
 import { onMounted, onUnmounted, ref } from 'vue'
+import { RouterLink } from 'vue-router'
 
 defineProps({ compact: Boolean })
 const brandText = ref('')
@@ -38,8 +39,9 @@ onUnmounted(() => window.clearTimeout(brandTimer))
 </script>
 
 <template>
-  <RouterLink
-    to="/"
+  <component
+    :is="compact ? RouterLink : 'a'"
+    v-bind="compact ? { to: '/painel' } : { href: '/' }"
     :class="['login-logo', { 'is-settled': brandSettled, 'login-logo-compact': compact }]"
     aria-label="Ayla"
     @mouseenter="animate"
@@ -52,5 +54,5 @@ onUnmounted(() => window.clearTimeout(brandTimer))
         }}</span> </TransitionGroup
       ><span class="login-logo-star">✦</span>
     </span>
-  </RouterLink>
+  </component>
 </template>

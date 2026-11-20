@@ -5,6 +5,7 @@ import { auth, api, setSession } from './lib/api'
 import { notices, confirmation, settleConfirm, toast } from './lib/ui'
 import Icon from './components/Icon.vue'
 import AylaLogo from './components/AylaLogo.vue'
+import AppFooter from './components/AppFooter.vue'
 import Modal from './components/Modal.vue'
 import InstallApp from './components/InstallApp.vue'
 import NotificationsCenter from './components/NotificationsCenter.vue'
@@ -81,7 +82,7 @@ watch(
   },
 )
 const nav = [
-  ['/', 'dashboard', 'Visão geral'],
+  ['/painel', 'dashboard', 'Visão geral'],
   ['/chat', 'chat', 'Conversar com Ayla'],
   ['/agenda', 'calendar', 'Agenda'],
   ['/alarmes', 'bell', 'Alarmes'],
@@ -112,6 +113,7 @@ async function logout() {
     >
       <Icon :name="theme === 'dark' ? 'sun' : 'moon'" /></button
     ><RouterView />
+    <AppFooter />
   </div>
   <div v-else class="app-shell">
     <div v-if="menu" class="sidebar-backdrop" aria-hidden="true" @click="closeMenu" />
@@ -133,7 +135,7 @@ async function logout() {
         <RouterLink
           v-for="[path, icon, label] in nav"
           :key="path"
-          :to="path === '/' ? { path: '/', query: { visao: 'geral' } } : path"
+          :to="path === '/painel' ? { path, query: { visao: 'geral' } } : path"
           :class="['nav-link', { active: route.path === path }]"
           ><Icon :name="icon" /><span>{{ label }}</span
           ><span v-if="path === '/chat'" class="tiny-star">✦</span></RouterLink
@@ -200,9 +202,7 @@ async function logout() {
         </div>
       </header>
       <div class="page" :class="{ 'chat-page': route.path === '/chat' }"><RouterView /></div>
-      <footer class="page-footer">
-        <span>Feito para o seu dia a dia.</span><span>Ayla <span class="accent">✦</span></span>
-      </footer>
+      <AppFooter />
       <nav class="mobile-dock" aria-label="Atalhos do aplicativo" :inert="mobile && menu">
         <RouterLink
           to="/chat"
