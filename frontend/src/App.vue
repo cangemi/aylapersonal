@@ -84,6 +84,7 @@ watch(
 const nav = [
   ['/painel', 'dashboard', 'Visão geral'],
   ['/chat', 'chat', 'Conversar com Ayla'],
+  ['/voz', 'audio', 'Conversa por voz'],
   ['/agenda', 'calendar', 'Agenda'],
   ['/alarmes', 'bell', 'Alarmes'],
   ['/financeiro', 'wallet', 'Financeiro'],

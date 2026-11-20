@@ -77,6 +77,7 @@ Access/refresh tokens ficam em `localStorage`, com login persistente no aparelho
 - Em Configurações → Usuários, o superadministrador cadastra, lista e busca contas, e redefine senhas. A redefinição encerra as sessões somente da conta escolhida. O chat de outro usuário depende da configuração de um perfil Hermes isolado no backend.
 - Não há transmissão de resposta em tempo real; aparece um indicador enquanto o endpoint de chat conclui.
 - A prévia de voz usa os parâmetros do formulário sem salvá-los no Java ou no Hermes. Somente **Salvar voz** altera a configuração usada pela Ayla. Microfone requer localhost ou HTTPS e permissão do navegador. Gravação limitada a dois minutos e aos tamanhos aceitos pela API.
+- Na conversa por voz, a captação encerra o trecho após uma pausa e envia o áudio para transcrição local. A Ayla usa as ferramentas do chat e responde com a voz, velocidade e tom salvos na conta. Uma frase curta pode sinalizar espera. Novas falas entram na fila da mesma conversa sem cancelar pedidos anteriores; respostas interrompidas podem ser retomadas, e a Ayla recebe o aviso de que talvez não tenham sido ouvidas. Por padrão, use **Interromper** para evitar que o alto-falante seja confundido com o microfone; a opção de interromper falando é indicada para uso com fones. A síntese e a reprodução dependem do serviço de voz e das permissões do navegador, e falhas são exibidas na tela.
 - Anexos ficam somente na memória enquanto são enviados. O backend mantém seus limites e valida o conteúdo real dos arquivos.
 
 ## Validação

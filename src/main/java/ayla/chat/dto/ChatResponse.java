@@ -8,7 +8,11 @@ public record ChatResponse(
         @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
         @io.swagger.v3.oas.annotations.media.Schema(description="Resposta falada opcional em base64; texto continua disponível.") ChatAudio audio,
         @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
-        @io.swagger.v3.oas.annotations.media.Schema(description="Complemento escrito após o áudio: links ou dados necessários para copiar.") String textSupplement) {
+        @io.swagger.v3.oas.annotations.media.Schema(description="Complemento escrito após o áudio: links ou dados necessários para copiar.") String textSupplement,
+        @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+        VoiceTurn voiceTurn) {
+    public record VoiceTurn(String transcript,String speech,boolean chuckle) {}
+    public ChatResponse(String response,String sessionId,String conversationId,ChatAudio audio,String textSupplement) {this(response,sessionId,conversationId,audio,textSupplement,null);}
     public ChatResponse(String response,String sessionId,String conversationId,ChatAudio audio) {this(response,sessionId,conversationId,audio,null);}
     public ChatResponse(String response,String sessionId,String conversationId) {this(response,sessionId,conversationId,null);}
     public ChatResponse(String response, String sessionId) { this(response, sessionId, null); }

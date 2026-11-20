@@ -49,6 +49,10 @@ public class VoiceSettingsService {
         if(rows.size()!=1||scope==null||!profile.equals(scope.profile(rows.getFirst(),true)))throw new HermesException(409,"Perfil de voz sem vínculo exclusivo com uma conta.");
         return dashboard.speak(profile,text,get(rows.getFirst()));
     }
+    public ChatAudio speakForUser(String userId,String text) {
+        if(scope==null)throw new HermesException(503,"Isolamento de voz indisponível.");
+        return dashboard.speak(scope.profile(userId,true),text,get(userId));
+    }
     public ChatAudio preview(VoiceSettings settings) {
         return dashboard.preview(settings==null?get():settings);
     }

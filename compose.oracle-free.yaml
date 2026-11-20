@@ -11,6 +11,8 @@ services:
       AYLA_ORACLE_MEMORY_GB: ${AYLA_ORACLE_MEMORY_GB:-12}
       AYLA_ORACLE_CPU_MONTHLY_HOURS: ${AYLA_ORACLE_CPU_MONTHLY_HOURS:-1500}
       AYLA_ORACLE_MEMORY_MONTHLY_HOURS: ${AYLA_ORACLE_MEMORY_MONTHLY_HOURS:-9000}
+      # Orçamento da slice: modelo pequeno carrega rápido e cabe na memória livre.
+      AYLA_LOCAL_MODEL_MODEL: ${AYLA_LOCAL_MODEL_MODEL:-qwen3:1.7b}
       DB_POOL_SIZE: '8'
       MAX_CONCURRENT_CHATS: ${ORACLE_MAX_CONCURRENT_CHATS:-2}
       JAVA_TOOL_OPTIONS: '-XX:MaxRAMPercentage=55 -XX:+ExitOnOutOfMemoryError'
@@ -82,6 +84,14 @@ services:
         limits:
           memory: 384M
           cpus: '0.20'
+
+  ollama:
+    cgroup_parent: ayla.slice
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '0.55'
 
   prometheus:
     cgroup_parent: ayla.slice

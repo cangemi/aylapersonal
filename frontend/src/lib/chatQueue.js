@@ -1,6 +1,6 @@
 import { api, query } from './api'
 
-export async function waitForChatJob(initial, { onStatus = () => {}, signal } = {}) {
+export async function waitForChatJob(initial, { onStatus = () => {}, signal, pollInterval = 1000 } = {}) {
   let job = initial
   while (true) {
     if (signal?.aborted)
@@ -17,7 +17,9 @@ export async function waitForChatJob(initial, { onStatus = () => {}, signal } = 
         retryable: job.retryable === true,
         jobStatus: job.status,
       }
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    await new Promise((resolve) => setTimeout(resolve, pollInterval))
+    if (signal?.aborted)
+      throw new DOMException('Consulta interrompida; pedido continua salvo.', 'AbortError')
     try {
       job = await api('/chat/jobs/' + job.id, { signal })
     } catch (error) {
@@ -29,15 +31,26 @@ export async function waitForChatJob(initial, { onStatus = () => {}, signal } = 
     }
   }
 }
-export async function sendQueuedChat(body, options = {}) {
-  const accepted = await api('/chat', {
+export function submitChatJob(body, { signal } = {}) {
+  return api('/chat', {
     method: 'POST',
     body,
-    signal: options.signal,
+    signal,
     headers: { Prefer: 'respond-async', 'Idempotency-Key': crypto.randomUUID() },
   })
+}
+export async function sendQueuedChat(body, options = {}) {
+  const accepted = await submitChatJob(body, options)
   return accepted.response ? accepted : waitForChatJob(accepted, options)
 }
+/** Tenta responder sem ferramentas antes da fila: resposta direta ou frase de espera. */
+export function previewChatTurn(body, { signal, timeoutMs = 12000 } = {}) {
+  const timeout = typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(timeoutMs) : null
+  let abort = signal || timeout
+  if (signal && timeout && typeof AbortSignal.any === 'function') abort = AbortSignal.any([signal, timeout])
+  return api('/chat/turn-preview', { method: 'POST', body, signal: abort })
+}
+export const cancelVoiceJob = (id) => api('/chat/jobs/' + id + '/cancel-voice', { method: 'POST' })
 export const pendingChatJobs = (conversationId) => api('/chat/jobs?' + query({ conversationId }))
 export const retryChatJob = async (id, options = {}) =>
   waitForChatJob(

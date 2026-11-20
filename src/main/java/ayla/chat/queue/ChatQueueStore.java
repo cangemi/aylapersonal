@@ -61,6 +61,14 @@ public class ChatQueueStore {
         get(user,id,whatsappChat);
         jdbc.update("update chat_jobs set delivered_at=now() where id=? and status not in ('QUEUED','RUNNING')",id);
     }
+    public boolean cancelVoiceBeforeDispatch(String user,UUID id){
+        return jdbc.update("""
+                update chat_jobs set status='CANCELLED',finished_at=now(),delivered_at=now(),
+                    request_json=null,lease_until=null,lease_token=null,notice=null
+                where id=? and user_id=? and source='WEB' and status in ('QUEUED','RUNNING') and dispatched_at is null
+                    and request_json::jsonb ->> 'liveVoice' = 'true'
+                """,id,user)==1;
+    }
     public Work claim(){
         return tx.execute(ignored->{
             var rows=jdbc.queryForList("""

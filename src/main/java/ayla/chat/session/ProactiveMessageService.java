@@ -49,6 +49,23 @@ public class ProactiveMessageService {
         }
     }
 
+    /** Turnos respondidos pelo modelo local entram no histórico visível como uma troca comum. */
+    public void recordLocalTurn(String user, UUID conversation, String userText, String aylaText) {
+        if (user == null) return;
+        recordLocalRow(user, conversation, "user", userText);
+        recordLocalRow(user, conversation, "assistant", aylaText);
+    }
+    private void recordLocalRow(String user, UUID conversation, String role, String text) {
+        if (text == null || text.isBlank()) return;
+        String clipped = text.length() <= 4000 ? text : text.substring(0, 4000);
+        try {
+            jdbc.update("insert into proactive_messages(id,user_id,conversation_id,role,text,source,source_id,created_at) values (?,?,?,?,?,?,?,?) on conflict do nothing",
+                    UUID.randomUUID(), user, conversation, role, clipped, "local-turn", null, Timestamp.from(Instant.now()));
+        } catch (RuntimeException ignored) {
+            // History enrichment must never block the reply.
+        }
+    }
+
     public List<ConversationHistory.Message> listByUser(String user, UUID conversationId, int limit) {
         var messages = listSince(user, conversationId, null);
         return messages.subList(Math.max(0, messages.size() - Math.max(0, limit)), messages.size());

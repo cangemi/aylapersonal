@@ -5,6 +5,7 @@ import { api, auth } from '../lib/api'
 import { transcripts } from '../lib/chatState'
 import {
   sendQueuedChat,
+  previewChatTurn,
   waitForChatJob,
   pendingChatJobs,
   acknowledgeChatJob,
@@ -403,6 +404,24 @@ async function send() {
         }))
     }
     try {
+      // Papo comum sem anexo responde na hora pelo modelo local; ferramentas seguem pela fila.
+      let preview = null
+      if (!media.length && !forceSearch.value && !audioReply.value) {
+        try {
+          preview = await previewChatTurn(payload)
+        } catch (e) {
+          if (destroyed) return
+          preview = null
+        }
+      }
+      if (preview?.replied) {
+        if (auth.session?.user?.id === owner)
+          list.push({ role: 'assistant', text: preview.response, jobId: null })
+        await acknowledgeChatJob(null)
+        await bottom()
+        return
+      }
+      if (preview?.hold) queueStatus.value = preview.hold
       const result = await sendQueuedChat(payload, queueOptions)
       if (auth.session?.user?.id === owner)
         list.push({
@@ -680,7 +699,12 @@ function keydown(event) {
         <div>
           <strong>Ayla</strong><small>{{ activeTitle }}</small>
         </div>
-        <span class="tag lavender">Vamos conversar</span>
+        <RouterLink
+          :to="{ path: '/voz', query: active ? { conversationId: active } : {} }"
+          class="button secondary chat-voice-link"
+          aria-label="Abrir conversa por voz"
+          title="Conversa por voz"
+        ><Icon name="audio" :size="17" /><span>Voz</span></RouterLink>
         <button
           class="icon-button mobile-chat-action chat-new-button"
           aria-label="Nova conversa"

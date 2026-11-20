@@ -39,6 +39,11 @@ const routes = [
     meta: { title: 'Converse com a Ayla', subtitle: 'Sua companhia para organizar o dia.' },
   },
   {
+    path: '/voz',
+    component: () => import('./pages/VoiceChat.vue'),
+    meta: { title: 'Conversa por voz' },
+  },
+  {
     path: '/investimentos',
     component: () => import('./pages/Investments.vue'),
     meta: { title: 'Investimentos', subtitle: 'Sua carteira, em qualquer banco ou corretora.' },

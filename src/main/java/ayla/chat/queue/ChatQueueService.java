@@ -50,7 +50,7 @@ public class ChatQueueService {
         UUID existing=store.existing(user,requestKey,fingerprint,source,whatsappChat);
         if(existing!=null)return store.get(user,existing,whatsappChat);
         var selection=conversations.resolve(user,request.conversationId(),request.sessionId());
-        var bound=new ChatRequest(request.message(),null,selection.conversationId().toString(),request.searchRequired(),request.images(),request.audios(),request.audioReply(),request.documents(),request.whatsappContext());
+        var bound=new ChatRequest(request.message(),null,selection.conversationId().toString(),request.searchRequired(),request.images(),request.audios(),request.audioReply(),request.documents(),request.whatsappContext(),request.liveVoice(),request.interruptedVoice());
         UUID id=store.insert(user,selection.conversationId(),requestKey,fingerprint,source,whatsappChat,bound);
         if(providerUsage!=null)try{providerUsage.check(user);}catch(ayla.hermes.ProviderUsageData.Limited limited){store.limitedBeforeDispatch(user,id,limited);return store.get(user,id,whatsappChat);}
         if(org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()){
@@ -108,6 +108,7 @@ public class ChatQueueService {
                 }
                 else {store.finish(work,context.dispatched()?"NEEDS_REVIEW":"FAILED",null,
                         error instanceof ayla.hermes.ProviderUsageData.Limited||error instanceof ayla.hermes.HermesSessionPausedException?error.getMessage():context.dispatched()?"Não consegui confirmar a conclusão. Não repeti sua solicitação; confira se a alteração já ocorreu antes de reenviar."
+                        :error instanceof HermesException h && h.status()==422 ? h.getMessage()
                         :"Não consegui processar esse pedido. Confira os dados enviados e a configuração da Ayla.");
                     event(work,started,error instanceof HermesException h?h.status():502,error);
                 }

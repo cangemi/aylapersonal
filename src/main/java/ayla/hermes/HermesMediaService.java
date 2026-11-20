@@ -31,6 +31,11 @@ public class HermesMediaService {
         }
         return result.toString();
     }
+    public String transcribeVoiceTurn(String profile,ChatAudio audio) {
+        String text=dashboard.transcribe(profile,audio);
+        ayla.chat.queue.ChatJobContext.mediaPrepared();
+        return text;
+    }
     public ChatAudio speak(String profile,String text) {
         // Read prose, not Markdown/URLs/code. The full original answer remains available in text.
         String spoken=text.replaceAll("(?s)```.*?```","Trecho de código disponível por escrito.")

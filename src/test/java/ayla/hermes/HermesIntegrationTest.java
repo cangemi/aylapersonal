@@ -346,6 +346,28 @@ class HermesIntegrationTest {
             .isInstanceOf(HermesException.class);
     }
 
+    @Test void liveVoiceTranscribesAndSynthesizesWithConfiguredVoiceInsteadOfBrowserSpeech() {
+        var media=mock(ayla.hermes.HermesMediaService.class);
+        var input=new ayla.chat.dto.ChatAudio("audio/ogg",Base64.getEncoder().encodeToString("OggS-test-voice".getBytes(StandardCharsets.UTF_8)));
+        var output=new ayla.chat.dto.ChatAudio("audio/ogg","T2dnUw==");
+        when(media.transcribeVoiceTurn("default",input)).thenReturn("Me responde alguma coisa");
+        when(media.speak(eq("default"),anyString())).thenReturn(output);
+        var chatSettings=mock(HermesSettingsService.class);
+        when(chatSettings.get("local-owner")).thenReturn(new HermesConfiguration());
+        chatContent="[[AYLA_CHUCKLE]] Tô aqui! 😄";
+        var service=new ChatService(client,models,chatSettings,conversations,null,media);
+
+        var reply=service.chat(new ChatRequest("Mensagem de voz",null,null,null,null,List.of(input),null,null,null,true),"local-owner");
+
+        assertThat(reply.voiceTurn().transcript()).isEqualTo("Me responde alguma coisa");
+        assertThat(reply.voiceTurn().speech()).isEqualTo("Tô aqui!");
+        assertThat(reply.audio()).isEqualTo(output);
+        assertThat(requests.getLast().get("message").toString()).contains("[AYLA_LIVE]","Me responde alguma coisa");
+        assertThat(requests.getLast().get("instructions").toString())
+                .contains("sintetizada com a voz","escreva emojis");
+        verify(media).speak("default","Ha, ha! Tô aqui!");
+    }
+
     @Test void occasionalVoiceRequiresModelChoiceLightContextAndCooldownAndRespectsTextOnly() {
         var media=mock(HermesMediaService.class);
         var budget=mock(ayla.chat.service.SpontaneousVoice.class);

@@ -30,6 +30,10 @@ services:
       AYLA_FRONTEND_ORIGINS: ${AYLA_FRONTEND_ORIGINS:-https://aylapersonal.duckdns.org}
       AYLA_WEB_BASE_URL: ${AYLA_WEB_BASE_URL:-https://aylapersonal.duckdns.org}
       AYLA_VOICE_PRONUNCIATIONS: ${AYLA_VOICE_PRONUNCIATIONS:-}
+      AYLA_LOCAL_MODEL_ENABLED: ${AYLA_LOCAL_MODEL_ENABLED:-true}
+      AYLA_LOCAL_MODEL_BASE_URL: ${AYLA_LOCAL_MODEL_BASE_URL:-http://ollama:11434}
+      AYLA_LOCAL_MODEL_MODEL: ${AYLA_LOCAL_MODEL_MODEL:-qwen3:4b}
+      AYLA_LOCAL_MODEL_TIMEOUT_SECONDS: ${AYLA_LOCAL_MODEL_TIMEOUT_SECONDS:-30}
       AYLA_MEMORY_CONTEXT_MAX_CHARS: ${AYLA_MEMORY_CONTEXT_MAX_CHARS:-4000}
       AYLA_GOOGLE_CLIENT_ID: ${AYLA_GOOGLE_CLIENT_ID:-}
       AYLA_GOOGLE_CLIENT_SECRET: ${AYLA_GOOGLE_CLIENT_SECRET:-}
@@ -263,6 +267,29 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # Modelo pequeno local: papo comum responde aqui antes da fila; ferramentas seguem no Hermes.
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    environment:
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_NUM_PARALLEL: "1"
+    volumes:
+      - ollama_models:/root/.ollama
+    expose:
+      - "11434"
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: "1.0"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 volumes:
   ayla_letsencrypt:
   ayla_acme_webroot:
+  ollama_models:

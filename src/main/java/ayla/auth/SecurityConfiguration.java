@@ -144,6 +144,9 @@ public class SecurityConfiguration {
                                 "WHATSAPP"
                         )
 
+                        .requestMatchers(HttpMethod.POST, "/api/v1/chat/jobs/*/cancel-voice")
+                        .hasAnyRole("OWNER", "USER")
+
                         .requestMatchers(
                                 "/api/v1/chat/jobs",
                                 "/api/v1/chat/jobs/**"

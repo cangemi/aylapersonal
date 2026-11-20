@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class SpontaneousVoice {
     public static final String MARKER="[[AYLA_CASUAL_VOICE]]";
+    public static final String CHUCKLE="[[AYLA_CHUCKLE]]";
     private static final Pattern SERIOUS=Pattern.compile("\\b(?:financeir\\w*|gastei|recebi|salarios?|saude|triste|morreu|dor|saldo|gastos?|despesas?|receitas?|paguei|pagamentos?|dinheiro|reais|centavos?|recibos?|comprovantes?|boletos?|faturas?|extratos?|documentos?|laudos?|exames?|hospital|doenca|luto|morte|dividas?|invoice|receipt)\\b|r\\$|\\bnota\\s+fiscal\\b");
     private final JdbcTemplate jdbc;
     public SpontaneousVoice(JdbcTemplate jdbc) {this.jdbc=jdbc;}
@@ -24,5 +25,5 @@ public class SpontaneousVoice {
         return !SERIOUS.matcher(text).find();
     }
     public static boolean requestedByModel(String response) {return response.stripLeading().startsWith(MARKER);}
-    public static String clean(String response) {return response.replace(MARKER,"").strip();}
+    public static String clean(String response) {return response.replace(MARKER,"").replace(CHUCKLE,"").strip();}
 }

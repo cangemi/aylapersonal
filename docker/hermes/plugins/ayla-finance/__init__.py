@@ -365,6 +365,7 @@ def register(ctx):
                               'type': 'object', 'properties': properties, 'required': required, 'additionalProperties': False}},
                           handler=alarm_handler)
 EXECUTOR_NOTICE = "You've reached the maximum number of tool-calling iterations allowed."
+LIVE_VOICE_PREFIX = '[AYLA_LIVE]\n'
 
 
 def bounded_setting(name, default, minimum, maximum):
@@ -382,6 +383,13 @@ def historical_copy(message):
         if len(parts) != len(content):
             parts = [*parts, {'type': 'text', 'text': '[Mídia antiga omitida deste contexto; use a análise registrada, não finja revê-la.]'}]
         return {**message, 'content': parts}
+    return strip_voice_prefix(message)
+
+
+def strip_voice_prefix(message):
+    content = message.get('content')
+    if message.get('role') == 'user' and isinstance(content, str) and content.startswith(LIVE_VOICE_PREFIX):
+        return {**message, 'content': content.removeprefix(LIVE_VOICE_PREFIX)}
     return message
 
 
@@ -392,11 +400,16 @@ def select_recent_context(messages, budget_tokens=0, threshold=0.75):
     if not users:
         return messages
     current = users[-1]
+    voice_turn = str(messages[current].get('content', '')).startswith(LIVE_VOICE_PREFIX)
     system = [message for message in messages[:current] if message.get('role') in ('system', 'developer')]
-    tail = messages[current:]  # Never cut a current instruction, call, result, correction or retry.
+    tail = [strip_voice_prefix(message) for message in messages[current:]]  # Preserve current tool chains.
     recent_limit = bounded_setting('AYLA_HISTORY_RECENT_TURNS', 6, 1, 50)
     character_limit = bounded_setting('AYLA_HISTORY_MAX_CHARS', 24000, 4000, 250000)
     handoff_limit = bounded_setting('AYLA_HISTORY_HANDOFF_CHARS', 4000, 0, 16000)
+    if voice_turn:
+        recent_limit = min(recent_limit, 4)
+        character_limit = min(character_limit, 5500)
+        handoff_limit = min(handoff_limit, 650)
     estimate = None
     try:
         from agent.model_metadata import estimate_messages_tokens_rough
@@ -411,7 +424,12 @@ def select_recent_context(messages, budget_tokens=0, threshold=0.75):
     groups, used, kept_start = [], 0, current
     for position in range(len(users) - 2, max(-1, len(users) - 2 - recent_limit), -1):
         first, last = users[position], users[position + 1]
-        group = [historical_copy(message) for message in messages[first:last] if message.get('role') not in ('system', 'developer')]
+        group = [historical_copy(message) for message in messages[first:last]
+                 if message.get('role') not in ('system', 'developer')]
+        if voice_turn:
+            # Prior tool payloads can be large. Keep the actual dialogue; current results are checked afresh.
+            group = [message for message in group if message.get('role') in ('user', 'assistant')
+                     and not message.get('tool_calls')]
         length = len(json.dumps(group, ensure_ascii=False, separators=(',', ':')))
         candidate = group + [message for block in groups for message in block]
         # Keep complete exchanges only; large old results are recoverable without buying them every turn.
@@ -429,7 +447,7 @@ def select_recent_context(messages, budget_tokens=0, threshold=0.75):
         for message in reversed(messages[max(0, kept_start - 40):kept_start]):
             if message.get('role') not in ('user', 'assistant') or message.get('tool_calls'):
                 continue
-            content = message.get('content')
+            content = strip_voice_prefix(message).get('content')
             if not isinstance(content, str) or not content.strip():
                 continue
             fragment = {'author': message['role'], 'excerpt': content[:min(600, handoff_limit)]}

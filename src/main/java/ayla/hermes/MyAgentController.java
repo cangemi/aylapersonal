@@ -47,6 +47,13 @@ public class MyAgentController {
     public ChatAudio preview(@Valid @RequestBody(required = false) VoiceSettings request, @Parameter(hidden = true) Principal p) {
         return voice.preview(identity.resolve(p), request);
     }
+    public record SpeechRequest(@jakarta.validation.constraints.NotBlank @jakarta.validation.constraints.Size(max=500) String text) {}
+    @PostMapping("/voice/speech")
+    public ChatAudio speech(@Valid @RequestBody SpeechRequest request, @Parameter(hidden = true) Principal p) {
+        String text=request.text().replaceAll("[\\p{So}\\p{Sk}\\uFE0E\\uFE0F\\u200D\\u20E3]","").strip();
+        if(text.isBlank())throw new HermesException(400,"Informe um texto para falar.");
+        return voice.speakForUser(identity.resolve(p),text);
+    }
     private HermesController.Settings view(HermesConfiguration config) {
         return new HermesController.Settings("nous", config.getModel(), true, config.getInstructions());
     }

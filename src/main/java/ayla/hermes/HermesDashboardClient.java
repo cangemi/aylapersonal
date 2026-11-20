@@ -117,7 +117,7 @@ public class HermesDashboardClient {
         return voiceOperation(profile,()->synthesize(profile,text));
     }
     private ChatAudio synthesize(String profile,String text) {
-        var result=call("POST","/api/audio/speak"+profileQuery(profile),Map.of("text",text),false);
+        var result=call("POST","/api/audio/speak"+profileQuery(profile),Map.of("text",SpeechText.spoken(text)),false);
         return audioResult(result);
     }
     public ChatAudio preview(VoiceSettings settings) {

@@ -226,6 +226,17 @@
     margin-left: auto;
   }
 
+  .chat-voice-link {
+    min-width: 40px;
+    min-height: 44px;
+    justify-content: center;
+    padding: 8px;
+  }
+
+  .chat-voice-link span {
+    display: none;
+  }
+
   .chat-whatsapp-button {
     margin: 0;
     padding: 8px;
@@ -448,6 +459,18 @@
   .footer-links {
     grid-column: 1 / -1;
     grid-row: 2;
+  }
+}
+
+@media (max-width: 430px) {
+  .conversation-picker-button span {
+    display: none;
+  }
+}
+
+@media (max-width: 430px) {
+  .conversation-picker-button span {
+    display: none;
   }
 }
 

@@ -23,6 +23,19 @@ public class SpeechText {
         }
         pronunciations=List.copyOf(entries);
     }
+    /** Naturaliza o que os modelos escrevem para o TTS não soletrar interjeições nem ler risada como palavra. */
+    public static String spoken(String text) {
+        if(text==null||text.isBlank()) return text;
+        String result=text.replace("…","...");
+        // Rispadas por letras são lidas como sílabas soltas; viram risada falada.
+        result=result.replaceAll("(?iu)\\b(?:(?:ha|hi|he|ho){2,}|(?:kk)+|(?:rs)+)\\b","ha, ha");
+        result=result.replaceAll("(?iu)\\bhm+\\b","hum");
+        result=result.replaceAll("(?iu)\\buh\\b","ah");
+        result=result.replaceAll("(?iu)\\beh\\b","é");
+        result=result.replaceAll("(?iu)\\bneh\\b","né");
+        result=result.replaceAll("(?iu)\\bahn\\b","aham");
+        return result.replaceAll("\\s{2,}"," ").strip();
+    }
     public String format(String text) {
         // ICU owns the Portuguese spellout rules. Only integer quantities are formatted.
         var words=new RuleBasedNumberFormat(new ULocale("pt_BR"),RuleBasedNumberFormat.SPELLOUT);

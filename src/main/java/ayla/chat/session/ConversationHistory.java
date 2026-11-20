@@ -46,7 +46,7 @@ public class ConversationHistory {
             var files=new ArrayList<Attachment>();
             String text=text(row.get("content"),files);
             if("user".equals(role))text=cleanUser(text);
-            else text=SpontaneousVoice.clean(text).replaceAll("(?s)<think>.*?(?:</think>|$)","").strip();
+            else text=SpontaneousVoice.clean(text).replace("[[AYLA_TEXT]]","\n\n").replaceAll("(?s)<think>.*?(?:</think>|$)","").strip();
             if(text.isBlank() && files.isEmpty())continue;
             String id=Objects.toString(row.get("id"),selected.sessionId()+":"+(offset+i));
             visible.add(new Message(id,role,text,List.copyOf(files),timestamp(row)));
@@ -94,7 +94,15 @@ public class ConversationHistory {
         return String.join("\n",text);
     }
     private static String cleanUser(String text) {
+        text=text.replaceFirst("^\\[AYLA_LIVE]\\s*","");
         text=text.replaceFirst("^\\[AYLA_SEARCH_REQUIRED]\\s*","");
+        int local=text.indexOf("[Conversa recente desta conversa respondida fora do Hermes");
+        if(local>=0) {
+            String endMarker="[Fim da conversa recente]";
+            int end=text.indexOf(endMarker,local);
+            // Bloco de contexto local: invisível para o dono, o texto real começa depois dele.
+            if(end>=0) text=text.substring(0,local)+text.substring(end+endMarker.length()).replaceFirst("^\\s+","");
+        }
         for(String marker:List.of("\n[Análise visual das imagens enviadas NESTE turno.","\n[Documento fornecido para análise:","\n[Pesquisa real deste turno]")) {
             int start=text.indexOf(marker);
             if(start>=0)text=text.substring(0,start);

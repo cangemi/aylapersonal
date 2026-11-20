@@ -85,6 +85,7 @@ public class ChatController {
             }
         }
         if (whatsappChat!=null) {
+            if(Boolean.TRUE.equals(request.liveVoice()))throw new ayla.hermes.HermesException(400,"O modo de voz está disponível no navegador.");
             if (whatsapp==null) throw new ayla.whatsapp.WhatsappException(503,"Integração WhatsApp não configurada.");
             var access=whatsapp.resolve(authorization,whatsappChat,generation);
             if(queue!=null)return queued(access.userId(),new ChatRequest(request.message(),null,access.conversationId().toString(),request.searchRequired(),request.images(),request.audios(),request.audioReply(),request.documents(),request.whatsappContext()),requestKey,java.util.UUID.fromString(whatsappChat),prefer);
@@ -109,6 +110,10 @@ public class ChatController {
     @PostMapping("/jobs/{id}/retry")
     public ayla.chat.queue.ChatQueueStore.Job retry(@org.springframework.web.bind.annotation.PathVariable java.util.UUID id,java.security.Principal principal){
         return queue.retry(identity.resolve(principal),id);
+    }
+    @PostMapping("/jobs/{id}/cancel-voice")
+    public java.util.Map<String,Boolean> cancelVoice(@org.springframework.web.bind.annotation.PathVariable java.util.UUID id,java.security.Principal principal){
+        return java.util.Map.of("cancelled",jobs.cancelVoiceBeforeDispatch(identity.resolve(principal),id));
     }
     private String jobUser(java.security.Principal principal,String authorization,String whatsappChat){
         return whatsappChat==null?identity.resolve(principal):whatsapp.inspect(authorization,whatsappChat).userId();
